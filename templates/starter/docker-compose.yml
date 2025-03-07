@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coinbase-agent
+    ports:
+      - "${PORT:-3000}:3000"
+      - "${WEBSOCKET_PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - CDP_API_KEY_NAME=${CDP_API_KEY_NAME}
+      - CDP_API_KEY_PRIVATE_KEY=${CDP_API_KEY_PRIVATE_KEY}
+      - PORT=${PORT:-3000}
+      - WEBSOCKET_PORT=${WEBSOCKET_PORT:-3001}
+      - WEBSOCKET_URL=${WEBSOCKET_URL}
+      - AGENT_MODE=${AGENT_MODE:-http}
+      - MODEL=${MODEL:-gpt-4o-mini}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: npm run dev
+    restart: unless-stopped
