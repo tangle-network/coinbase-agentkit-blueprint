@@ -87,16 +87,60 @@ fn copy_starter_template(agent_dir: &Path) -> Result<(), String> {
         return Err("Starter template directory not found".to_string());
     }
 
-    // Use cp -r for efficient directory copying
-    let status = std::process::Command::new("cp")
-        .arg("-r")
-        .arg(template_dir.join("*")) // Copy contents of starter directory
-        .arg(agent_dir)
-        .status()
-        .map_err(|e| format!("Failed to copy template: {}", e))?;
+    // Use fs::read_dir and recursively copy files instead of shell command
+    copy_dir_contents(&template_dir, agent_dir)
+}
 
-    if !status.success() {
-        return Err("Failed to copy template files".to_string());
+/// Recursively copy directory contents
+fn copy_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
+    if !src.is_dir() {
+        return Err(format!("{} is not a directory", src.display()));
+    }
+
+    // Read the source directory entries
+    let entries = match fs::read_dir(src) {
+        Ok(entries) => entries,
+        Err(e) => return Err(format!("Failed to read directory {}: {}", src.display(), e)),
+    };
+
+    // Process each entry
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => return Err(format!("Failed to read directory entry: {}", e)),
+        };
+
+        let src_path = entry.path();
+        let file_name = match src_path.file_name() {
+            Some(name) => name,
+            None => continue, // Skip entries without a valid file name
+        };
+
+        // Skip node_modules directory to avoid copying large dependency trees
+        if file_name == "node_modules" || file_name == ".yarn" {
+            continue;
+        }
+
+        let dst_path = dst.join(file_name);
+
+        if src_path.is_dir() {
+            // Create the destination directory
+            fs::create_dir_all(&dst_path)
+                .map_err(|e| format!("Failed to create directory {}: {}", dst_path.display(), e))?;
+
+            // Recursively copy contents
+            copy_dir_contents(&src_path, &dst_path)?;
+        } else {
+            // Copy the file
+            fs::copy(&src_path, &dst_path).map_err(|e| {
+                format!(
+                    "Failed to copy {} to {}: {}",
+                    src_path.display(),
+                    dst_path.display(),
+                    e
+                )
+            })?;
+        }
     }
 
     Ok(())

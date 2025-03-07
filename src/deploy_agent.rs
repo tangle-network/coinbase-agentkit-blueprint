@@ -136,51 +136,81 @@ async fn deploy_to_tee(
     serde_json::to_vec(&result).map_err(|e| format!("Failed to serialize result: {}", e))
 }
 
-/// Deploy the agent locally using Docker
+/// Deploy the agent locally using Docker Compose
 async fn deploy_locally(
     agent_dir: &Path,
     params: &DeployAgentParams,
     deployment_id: &str,
     context: &ServiceContext,
 ) -> Result<Vec<u8>, String> {
-    // Update environment variables if provided
-    if let Some(api_key_config) = &params.api_key_config {
-        update_env_file(agent_dir, api_key_config)?;
-    }
+    // Create a temporary file to hold any updated environment variables
+    let agent_id = &params.agent_id;
+    let container_name = format!("coinbase-agent-{}", agent_id);
 
-    // Deploy using docker-compose from the template directory
-    let status = tokio::process::Command::new("docker-compose")
+    // Set up Docker Compose command with the container name
+    let mut command = tokio::process::Command::new("docker-compose");
+    command
         .current_dir(agent_dir)
-        .arg("up")
-        .arg("-d")
-        .status()
-        .await
-        .map_err(|e| format!("Failed to execute docker-compose: {}", e))?;
+        .env("CONTAINER_NAME", &container_name)
+        .args(&["up", "-d", "--build"]);
 
-    if !status.success() {
-        return Err("Failed to deploy agent with docker-compose".to_string());
+    // Execute Docker Compose command
+    let result = command
+        .output()
+        .await
+        .map_err(|e| format!("Failed to execute docker-compose command: {}", e))?;
+
+    if !result.status.success() {
+        let stderr = String::from_utf8_lossy(&result.stderr);
+        return Err(format!(
+            "Failed to deploy agent with docker-compose: {}",
+            stderr
+        ));
     }
 
-    // Get the host and port for the endpoint
-    let host = context
-        .get_env_var("SERVER_HOST")
-        .unwrap_or_else(|| "localhost".to_string());
-    let port = context
-        .get_env_var("HTTP_PORT")
-        .map(|p| p.parse::<u16>().unwrap_or(3000))
-        .unwrap_or(3000);
+    // Get port from the .env file or default to 3000
+    let agent_port = read_port_from_env(agent_dir).unwrap_or(3000);
+    let endpoint = format!("http://localhost:{}", agent_port);
 
-    // Prepare the deployment result
+    // Create deployment result
     let result = AgentDeploymentResult {
         agent_id: params.agent_id.clone(),
         deployment_id: deployment_id.to_string(),
-        endpoint: Some(format!("http://{}:{}", host, port)),
+        endpoint: Some(endpoint),
         tee_pubkey: None,
         tee_app_id: None,
     };
 
     // Serialize the result
-    serde_json::to_vec(&result).map_err(|e| format!("Failed to serialize result: {}", e))
+    match serde_json::to_vec(&result) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => Err(format!("Failed to serialize result: {}", e)),
+    }
+}
+
+/// Read the port from the .env file
+fn read_port_from_env(agent_dir: &Path) -> Option<u16> {
+    let env_path = agent_dir.join(".env");
+    if !env_path.exists() {
+        return None;
+    }
+
+    match fs::read_to_string(env_path) {
+        Ok(content) => {
+            for line in content.lines() {
+                if line.starts_with("AGENT_PORT=") || line.starts_with("PORT=") {
+                    let parts: Vec<&str> = line.split('=').collect();
+                    if parts.len() == 2 {
+                        if let Ok(port) = parts[1].parse::<u16>() {
+                            return Some(port);
+                        }
+                    }
+                }
+            }
+            None
+        }
+        Err(_) => None,
+    }
 }
 
 /// Updates the .env file with new API keys

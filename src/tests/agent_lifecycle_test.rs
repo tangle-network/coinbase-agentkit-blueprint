@@ -265,12 +265,9 @@ async fn verify_agent_deployed(agent_id: &str) {
 
     // For TEE deployments, we would verify the deployment status through the Phala API
     // For local deployments, we check if the container is running
+    let container_name = format!("coinbase-agent-{}", agent_id);
     let output = tokio::process::Command::new("docker")
-        .args(&[
-            "ps",
-            "--filter",
-            &format!("name=coinbase-agent-{}", agent_id),
-        ])
+        .args(&["ps", "--filter", &format!("name={}", container_name)])
         .output()
         .await
         .expect("Failed to execute docker ps");
@@ -283,8 +280,9 @@ async fn verify_agent_deployed(agent_id: &str) {
 
     let output_str = String::from_utf8_lossy(&output.stdout);
     assert!(
-        output_str.contains(&format!("coinbase-agent-{}", agent_id)),
-        "Container not found in running containers"
+        output_str.contains(&container_name),
+        "Container {} not found in running containers",
+        container_name
     );
 
     println!("Agent deployment verified successfully");
