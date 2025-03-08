@@ -1,6 +1,5 @@
 import { io, Socket } from "socket.io-client";
 import * as readline from "readline";
-import { config } from "./config";
 
 const WEBSOCKET_PORT = parseInt(process.env.WEBSOCKET_PORT || "3001", 10);
 const WEBSOCKET_URL =

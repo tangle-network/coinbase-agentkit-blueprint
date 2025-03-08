@@ -5,6 +5,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Enable or disable tests during build
+        RUN_TESTS: ${RUN_TESTS:-false}
     container_name: ${CONTAINER_NAME:-coinbase-agent}
     ports:
       - "${PORT:-3000}:3000"
@@ -25,3 +28,9 @@ services:
       - /app/node_modules
     command: npm run dev
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3000}/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

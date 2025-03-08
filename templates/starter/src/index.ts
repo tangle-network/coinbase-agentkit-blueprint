@@ -45,10 +45,10 @@ async function startServer() {
       }
 
       const response = await agent.processMessage(message);
-      res.json(response);
+      return res.json(response);
     } catch (error) {
       logger.error("Error processing message:", error);
-      res.status(500).json({ error: "Failed to process message" });
+      return res.status(500).json({ error: "Failed to process message" });
     }
   });
 
