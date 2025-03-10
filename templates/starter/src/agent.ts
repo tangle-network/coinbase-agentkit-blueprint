@@ -76,10 +76,36 @@ async function initialize(): Promise<InitializeResult> {
  * @returns The processed content
  */
 function processStreamChunk(chunk: any): string | null {
-  if ("agent" in chunk && chunk.agent?.messages?.length > 0) {
-    return chunk.agent.messages[0]?.content;
-  } else if ("tools" in chunk && chunk.tools?.messages?.length > 0) {
-    return chunk.tools.messages[0]?.content;
+  if (chunk && typeof chunk === "object") {
+    if ("agent" in chunk && chunk.agent && typeof chunk.agent === "object") {
+      const agentChunk = chunk.agent;
+      if (
+        "messages" in agentChunk &&
+        Array.isArray(agentChunk.messages) &&
+        agentChunk.messages.length > 0
+      ) {
+        const message = agentChunk.messages[0];
+        if (message && typeof message === "object" && "content" in message) {
+          return String(message.content);
+        }
+      }
+    } else if (
+      "tools" in chunk &&
+      chunk.tools &&
+      typeof chunk.tools === "object"
+    ) {
+      const toolsChunk = chunk.tools;
+      if (
+        "messages" in toolsChunk &&
+        Array.isArray(toolsChunk.messages) &&
+        toolsChunk.messages.length > 0
+      ) {
+        const message = toolsChunk.messages[0];
+        if (message && typeof message === "object" && "content" in message) {
+          return String(message.content);
+        }
+      }
+    }
   }
   return null;
 }
@@ -174,8 +200,18 @@ function extractResponseContent(result: unknown): string {
       return typeof lastMessage === "string"
         ? lastMessage
         : lastMessage?.content || "No response content";
-    } else if ("agent" in result && result.agent?.messages?.[0]?.content) {
-      return result.agent.messages[0].content;
+    } else if (
+      "agent" in result &&
+      result.agent &&
+      typeof result.agent === "object" &&
+      "messages" in result.agent &&
+      Array.isArray(result.agent.messages) &&
+      result.agent.messages.length > 0 &&
+      result.agent.messages[0] &&
+      typeof result.agent.messages[0] === "object" &&
+      "content" in result.agent.messages[0]
+    ) {
+      return String(result.agent.messages[0].content);
     }
   }
 

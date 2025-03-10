@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { HumanMessage } from "@langchain/core/messages";
 import { BaseMessage } from "@langchain/core/messages";
 
 // Environment variable schema
@@ -55,6 +54,11 @@ export interface InvokeParams {
   config?: Record<string, unknown>;
 }
 
+// Define a type that can represent either an AsyncIterable or a Promise of an IterableReadableStream
+export type StreamReturn<T> =
+  | AsyncIterable<T>
+  | Promise<{ [Symbol.asyncIterator](): AsyncIterator<T> }>;
+
 // Define interfaces with proper typing for LangGraph agents
 export interface LangChainAgent {
   // Modern agents use the stream method
@@ -63,7 +67,7 @@ export interface LangChainAgent {
       messages: BaseMessage[];
     },
     config?: Record<string, unknown>
-  ) => AsyncIterable<{
+  ) => StreamReturn<{
     agent?: { messages: { content: string }[] };
     tools?: { messages: { content: string }[] };
     [key: string]: any;

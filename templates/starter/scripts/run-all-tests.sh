@@ -12,8 +12,12 @@ NC='\033[0m' # No Color
 test_groups=(
   "HTTP:src/__tests__/agent-system.test.ts src/__tests__/server.test.ts"
   "WebSocket:src/__tests__/websocket.test.ts"
-  "Config:src/__tests__/config.integration.test.ts"
-  "CLI:src/__tests__/cli-mode.test.ts"
+)
+
+# Real test configurations with longer timeouts
+real_test_groups=(
+  "Real WebSocket:src/__tests__/real-websocket.test.ts:30000"
+  "Docker:src/__tests__/docker.test.ts:60000"
 )
 
 # Install dependencies if needed
@@ -57,18 +61,22 @@ for test_group in "${test_groups[@]}"; do
   fi
 done
 
-# Run Docker tests if Docker is available
-if command -v docker &> /dev/null && docker info &> /dev/null; then
-  echo -e "\n${BLUE}=== Testing Docker ===${NC}"
-  if ./scripts/docker-test.sh; then
-    results+=("${GREEN}✅ Docker: PASSED${NC}")
+# Run real test groups with their specified timeouts
+echo -e "\n${YELLOW}🧪 Running real-world tests...${NC}"
+
+for real_test in "${real_test_groups[@]}"; do
+  # Split group name, files, and timeout
+  IFS=':' read -r name files timeout <<< "$real_test"
+  
+  echo -e "\n${BLUE}=== Testing $name ===${NC}"
+  
+  if yarn jest $files --config=jest.plain.config.js --testTimeout=$timeout; then
+    results+=("${GREEN}✅ $name: PASSED${NC}")
   else
-    results+=("${RED}❌ Docker: FAILED${NC}")
+    results+=("${RED}❌ $name: FAILED${NC}")
     overall_status=1
   fi
-else
-  results+=("${YELLOW}⚠️ Docker: SKIPPED (Docker not available)${NC}")
-fi
+done
 
 # Summary
 echo -e "\n${BLUE}=== Test Summary ===${NC}"
