@@ -2,17 +2,6 @@
 
 This is a starter template for building agents with the Coinbase Agent Kit. It provides a production-ready foundation with TypeScript support, proper error handling, logging, and both HTTP and CLI interfaces.
 
-## Features
-
-- 🚀 Production-ready Node.js application
-- 📝 TypeScript for type safety
-- 🔄 Automatic reloading in development
-- 🐳 Docker support
-- 📊 Structured logging
-- 🔒 Environment variable validation
-- 🌐 HTTP API and CLI interfaces
-- 🧪 Testing setup with Jest
-
 ## Prerequisites
 
 - Node.js >= 18.0.0
@@ -36,12 +25,12 @@ This is a starter template for building agents with the Coinbase Agent Kit. It p
 3. Install dependencies:
 
    ```bash
-   npm install
+   yarn install
    ```
 
 4. Start the development server:
    ```bash
-   npm run dev
+   yarn dev
    ```
 
 ## Available Scripts
@@ -51,8 +40,6 @@ This is a starter template for building agents with the Coinbase Agent Kit. It p
 - `npm run dev` - Start the development server with hot reload
 - `npm test` - Run all tests
 - `./run-all-tests.sh` - Run comprehensive test suite including all integration tests
-- `./run-integration-tests.sh` - Run HTTP integration tests
-- `./docker-test.sh` - Run Docker integration tests
 - `npm run lint` - Run ESLint
 - `npm run format` - Format code with Prettier
 - `npm run docker:build` - Build Docker image
@@ -121,11 +108,6 @@ Optional:
 │   ├── logger.ts       # Logging setup
 │   ├── types.ts        # TypeScript types
 │   └── __tests__/      # Test files
-│       ├── agent-system.test.ts     # HTTP API tests
-│       ├── websocket.test.ts        # WebSocket tests
-│       ├── cli-mode.test.ts         # CLI mode tests
-│       └── config.integration.test.ts # Configuration tests
-├── dist/               # Compiled JavaScript
 ├── Dockerfile          # Docker configuration
 ├── docker-test.sh      # Docker integration tests
 ├── run-all-tests.sh    # Comprehensive test runner
@@ -134,58 +116,9 @@ Optional:
 └── tsconfig.json       # TypeScript configuration
 ```
 
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
-
 ## License
 
 MIT
-
-## Testing Architecture
-
-This project includes a comprehensive testing framework to ensure all aspects of the agent functionality work correctly:
-
-### Test Categories
-
-1. **Unit Tests**
-
-   - Test individual components in isolation
-   - Located in `src/__tests__/*.test.ts`
-   - Run with `npm test -- --selectProjects unit`
-
-2. **HTTP Integration Tests**
-
-   - Test the HTTP server endpoints and agent interaction
-   - Located in `src/__tests__/agent-system.test.ts`
-   - Run with `./run-integration-tests.sh`
-
-3. **WebSocket Tests**
-
-   - Test WebSocket server functionality
-   - Located in `src/__tests__/websocket.test.ts`
-   - Run with `npm test -- --selectProjects websocket`
-
-4. **CLI Mode Tests**
-
-   - Test command-line interface operation
-   - Located in `src/__tests__/cli-mode.test.ts`
-   - Run with `npm test -- --selectProjects cli-mode`
-
-5. **Configuration Tests**
-
-   - Test environment variable handling and configuration
-   - Located in `src/__tests__/config.integration.test.ts`
-   - Run with `npm test -- --selectProjects config`
-
-6. **Docker Integration Tests**
-   - Test the agent running in a Docker container
-   - Uses the `docker-test.sh` script
-   - Run with `./docker-test.sh`
 
 ### Running All Tests
 

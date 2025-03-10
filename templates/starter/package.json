@@ -8,9 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "./scripts/run-all-tests.sh",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage"
+    "test": "./scripts/run-all-tests.sh"
   },
   "dependencies": {
     "@coinbase/agentkit": "^0.2.3",
