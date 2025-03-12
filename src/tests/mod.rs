@@ -4,15 +4,41 @@ use crate::{
 };
 use blueprint_sdk::config::GadgetConfiguration;
 use dotenv::dotenv;
-use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::{collections::HashMap, path::Path};
 use tempfile::tempdir;
+use tokio::process::Command as TokioCommand;
 
 pub mod create_agent_tests;
 pub mod deploy_agent_tests;
+
+/// Log a message with timestamp for test output
+pub fn log(msg: &str) {
+    println!("[{}] {}", chrono::Local::now().format("%H:%M:%S%.3f"), msg);
+}
+
+/// Clean up any existing containers
+async fn clean_existing_container(agent_dir: &Path) -> Result<(), String> {
+    log("Cleaning up any existing containers");
+    let cleanup_output = TokioCommand::new("docker-compose")
+        .args(&["down", "--remove-orphans"])
+        .current_dir(agent_dir)
+        .output()
+        .await;
+
+    if let Ok(output) = &cleanup_output {
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            log(&format!("Cleanup warning: {}", stderr));
+            // Continue anyway - this is a cleanup operation
+        }
+    }
+
+    Ok(())
+}
 
 /// Helper function to set up a temporary test environment
 /// Returns a tuple with (ServiceContext, temporary directory path, Vec of missing requirements)

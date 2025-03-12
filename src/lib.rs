@@ -21,7 +21,7 @@ pub mod types;
 mod tests;
 
 pub use create_agent::handle_create_agent;
-pub use deploy_agent::{extract_port_config, handle_deploy_agent};
+pub use deploy_agent::handle_deploy_agent;
 pub use types::*;
 
 /// Port configuration for an agent with HTTP and WebSocket ports

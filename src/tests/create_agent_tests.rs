@@ -1,17 +1,12 @@
 use crate::{
     create_agent::handle_create_agent,
-    tests::setup_test_env,
+    tests::{log, setup_test_env},
     types::{
         AgentConfig, AgentCreationResult, AgentMode, ApiKeyConfig, CreateAgentParams,
         DeploymentConfig,
     },
 };
 use std::env;
-
-/// Log a message with timestamp for test output
-fn log(msg: &str) {
-    println!("[{}] {}", chrono::Local::now().format("%H:%M:%S%.3f"), msg);
-}
 
 /// Test agent creation without TEE
 #[tokio::test]

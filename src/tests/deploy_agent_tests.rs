@@ -2,23 +2,21 @@ use crate::{
     agent_endpoint::AgentEndpoint,
     create_agent::handle_create_agent,
     deploy_agent::handle_deploy_agent,
-    tests::setup_test_env,
+    tests::{clean_existing_container, log, setup_test_env},
     types::{
         AgentConfig, AgentCreationResult, AgentDeploymentResult, AgentMode, ApiKeyConfig,
         CreateAgentParams, DeployAgentParams, DeploymentConfig,
     },
 };
 use chrono::Local;
+use phala_tee_deploy_rs::Encryptor;
 use rand;
+use serde_json::json;
 use std::{
     env,
+    path::Path,
     time::{Duration, Instant},
 };
-
-/// Log a message with timestamp for test output
-fn log(msg: &str) {
-    println!("[{}] {}", Local::now().format("%H:%M:%S%.3f"), msg);
-}
 
 /// Test agent deployment without TEE
 #[tokio::test]
@@ -163,6 +161,20 @@ async fn test_deploy_agent_interaction() {
         create_result.agent_id
     ));
 
+    // Get the agent directory
+    let agent_dir = context
+        .agents_base_dir
+        .as_ref()
+        .unwrap_or(&"./agents".to_string())
+        .clone();
+    let agent_dir = Path::new(&agent_dir).join(&create_result.agent_id);
+
+    // Clean up any existing containers before deploying
+    log("Cleaning up any existing containers before deployment");
+    if let Err(e) = clean_existing_container(&agent_dir).await {
+        log(&format!("Cleanup warning: {} (continuing anyway)", e));
+    }
+
     // Deploy agent
     log("Deploying agent");
     let deploy_params = DeployAgentParams {
@@ -178,7 +190,7 @@ async fn test_deploy_agent_interaction() {
     let deploy_params_bytes =
         serde_json::to_vec(&deploy_params).expect("Failed to serialize deploy params");
 
-    // Set up automatic cleanup
+    // Set up automatic cleanup for when the test finishes
     let agent_id = create_result.agent_id.clone();
     let _cleanup_guard = scopeguard::guard((), |_| {
         log("Cleaning up Docker container");
@@ -227,7 +239,7 @@ async fn test_deploy_agent_interaction() {
 
     // Test interaction
     log("Sending test message");
-    let message = "What is your purpose? Keep the answer short.";
+    let message = "What is your purpose? Keep the answer short. Tell me a funny joke about Coinbase, don't hold back";
     let mut test_passed = false;
 
     match agent.interact(message, Duration::from_secs(10)).await {
@@ -254,4 +266,235 @@ async fn test_deploy_agent_interaction() {
     if !test_passed {
         panic!("Agent interaction test failed");
     }
+}
+
+/// Test agent deployment to TEE with encrypted environment variables
+#[tokio::test]
+async fn test_deploy_agent_tee() {
+    dotenv::dotenv().ok();
+
+    let start_time = Instant::now();
+
+    // Check for required environment variables
+    if std::env::var("PHALA_CLOUD_API_KEY").is_err() {
+        log("Skipping TEE test: PHALA_CLOUD_API_KEY not set");
+        return;
+    }
+
+    if std::env::var("PHALA_CLOUD_API_ENDPOINT").is_err() {
+        log("Skipping TEE test: PHALA_CLOUD_API_ENDPOINT not set");
+        return;
+    }
+
+    // Get API keys - skip test if not available
+    let openai_api_key = match std::env::var("OPENAI_API_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            log("Skipping TEE test: OPENAI_API_KEY not set");
+            return;
+        }
+    };
+
+    let cdp_api_key_name = match std::env::var("CDP_API_KEY_NAME") {
+        Ok(key) => key,
+        Err(_) => {
+            log("Skipping TEE test: CDP_API_KEY_NAME not set");
+            return;
+        }
+    };
+
+    let cdp_api_key_private_key = match std::env::var("CDP_API_KEY_PRIVATE_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            log("Skipping TEE test: CDP_API_KEY_PRIVATE_KEY not set");
+            return;
+        }
+    };
+
+    // Set up test environment and context
+    let (mut context, _temp_dir, missing) = setup_test_env();
+
+    // Skip test if other requirements not met
+    if !missing.is_empty() {
+        for issue in missing {
+            log(&format!("Skipping test: {}", issue));
+        }
+        return;
+    }
+
+    // Enable TEE for this test and set API credentials from environment
+    context.tee_enabled = Some(true);
+    context.phala_tee_api_key = std::env::var("PHALA_CLOUD_API_KEY").ok();
+    context.phala_tee_api_endpoint = std::env::var("PHALA_CLOUD_API_ENDPOINT").ok();
+
+    log("Starting TEE agent deployment test");
+
+    // 1. Create agent with TEE enabled
+    log("Creating agent with TEE enabled");
+    let create_params = CreateAgentParams {
+        name: "TEE Test Agent".to_string(),
+        agent_config: AgentConfig {
+            mode: AgentMode::Chat,
+            model: "gpt-4o-mini".to_string(),
+        },
+        deployment_config: DeploymentConfig {
+            tee_enabled: true,
+            docker_compose_path: None,
+            public_key: None,
+            http_port: None,
+            tee_config: None,
+        },
+        api_key_config: ApiKeyConfig {
+            openai_api_key: None,
+            cdp_api_key_name: None,
+            cdp_api_key_private_key: None,
+        },
+    };
+
+    let create_params_bytes =
+        serde_json::to_vec(&create_params).expect("Failed to serialize create params");
+
+    // Execute the creation request
+    let create_result = match handle_create_agent(create_params_bytes, &context).await {
+        Ok(result) => result,
+        Err(e) => {
+            log(&format!("Agent creation failed: {}", e));
+            if e.contains("Failed to discover TEEPods") || e.contains("connect failed") {
+                log("Skipping test: TEE service not available");
+                return;
+            } else {
+                panic!("Unexpected error during agent creation: {}", e);
+            }
+        }
+    };
+
+    let create_result: AgentCreationResult =
+        serde_json::from_slice(&create_result).expect("Failed to deserialize create result");
+
+    log(&format!(
+        "Created agent with ID: {}",
+        create_result.agent_id
+    ));
+
+    // 2. Verify we received a TEE public key
+    let tee_pubkey = match &create_result.tee_pubkey {
+        Some(key) => {
+            log(&format!(
+                "Received TEE public key {} for environment encryption",
+                key
+            ));
+            key
+        }
+        None => {
+            log("No TEE public key received - cannot proceed with test");
+            return;
+        }
+    };
+
+    // 3. In a real scenario, a user would encrypt their environment variables with this key
+    // For this test, we'll create encrypted content using whatever mechanism the API expects
+    log("Preparing encrypted environment variables");
+
+    // Get env_encrypt_tool from the service (if available) to properly encrypt the variables
+    // This would typically involve using the TEE service's encryption API
+    let env_vars: Vec<(String, String)> = vec![
+        ("PORT", "3000"),
+        ("WEBSOCKET_PORT", "3001"),
+        ("NODE_ENV", "production"),
+        ("AGENT_MODE", "http"),
+        ("MODEL", "gpt-4o-mini"),
+        ("LOG_LEVEL", "info"),
+        ("OPENAI_API_KEY", &openai_api_key),
+        ("CDP_API_KEY_NAME", &cdp_api_key_name),
+        ("CDP_API_KEY_PRIVATE_KEY", &cdp_api_key_private_key),
+    ]
+    .iter()
+    .map(|(k, v)| (k.to_string(), v.to_string()))
+    .collect();
+
+    // Encrypt the vars
+    let encrypted_env = Encryptor::encrypt_env_vars(&env_vars, &tee_pubkey)
+        .expect("Failed to encrypt environment variables");
+
+    // 4. Deploy agent with encrypted environment variables
+    log("Deploying agent to TEE with encrypted environment");
+    let deploy_params = DeployAgentParams {
+        agent_id: create_result.agent_id.clone(),
+        api_key_config: None, // Not needed for TEE as they're provided in encrypted env
+        encrypted_env: Some(encrypted_env),
+    };
+
+    let deploy_params_bytes =
+        serde_json::to_vec(&deploy_params).expect("Failed to serialize deploy params");
+
+    // Execute the deployment request
+    let deploy_result = match handle_deploy_agent(deploy_params_bytes, &context).await {
+        Ok(result) => result,
+        Err(e) => {
+            log(&format!("TEE deployment failed: {}", e));
+            if e.contains("TEE service") || e.contains("not available") {
+                log("TEE deployment service not available - skipping test");
+                return;
+            } else {
+                panic!("Unexpected error during TEE deployment: {}", e);
+            }
+        }
+    };
+
+    // 5. Verify deployment result
+    let deploy_result: AgentDeploymentResult =
+        serde_json::from_slice(&deploy_result).expect("Failed to deserialize deployment result");
+
+    log(&format!(
+        "Successfully deployed agent to TEE: {:?}",
+        deploy_result
+    ));
+
+    // Verify we have an endpoint and app_id
+    assert!(
+        deploy_result.endpoint.is_some(),
+        "No endpoint returned from TEE deployment"
+    );
+    assert!(
+        deploy_result.tee_app_id.is_some(),
+        "No TEE app_id returned from deployment"
+    );
+
+    // Optional: Test interaction with the deployed agent
+    if let Some(endpoint) = &deploy_result.endpoint {
+        log(&format!(
+            "Testing interaction with TEE agent at {}",
+            endpoint
+        ));
+
+        let agent = AgentEndpoint::new(endpoint.clone());
+
+        // Wait for agent to become healthy - may take longer in TEE environment
+        match agent
+            .wait_for_health(30, Duration::from_secs(1), Duration::from_secs(5))
+            .await
+        {
+            Ok(_) => {
+                log("TEE agent is healthy, sending test message");
+                let message = "What is your purpose? Keep it brief.";
+
+                match agent.interact(message, Duration::from_secs(15)).await {
+                    Ok(response) => {
+                        if let Some(response_text) =
+                            response.get("response").and_then(|r| r.as_str())
+                        {
+                            log(&format!("TEE agent response: {}", response_text));
+                        }
+                    }
+                    Err(e) => log(&format!("TEE agent interaction failed: {}", e)),
+                }
+            }
+            Err(e) => log(&format!("TEE agent health check failed: {}", e)),
+        }
+    }
+
+    log(&format!(
+        "TEE deployment test completed in {:.2} seconds",
+        start_time.elapsed().as_secs_f64()
+    ));
 }

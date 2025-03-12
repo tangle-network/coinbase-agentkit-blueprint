@@ -1,11 +1,9 @@
 use dockworker::config::compose::{BuildConfig, ComposeConfig, Service};
 use dockworker::config::EnvironmentVars;
 use phala_tee_deploy_rs::{TeeDeployer, TeeDeployerBuilder};
-use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 /// Creates a Docker Compose configuration for a Coinbase Agent
 ///

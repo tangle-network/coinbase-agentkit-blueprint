@@ -30,7 +30,6 @@ pub struct TeeConfig {
     pub enabled: bool,
     pub api_key: Option<String>,
     pub api_endpoint: Option<String>,
-    pub teepod_id: Option<u64>,
     pub app_id: Option<String>,
     pub pubkey: Option<String>,
     pub encrypted_env: Option<String>,

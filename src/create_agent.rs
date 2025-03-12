@@ -304,7 +304,6 @@ async fn get_tee_public_key(
         enabled: true,
         api_key: Some(tee_api_key.clone()),
         api_endpoint: Some(tee_api_endpoint.clone()),
-        teepod_id: None, // No need to extract TEEPod ID - managed by TeeDeployer
         app_id: Some(salt),
         pubkey: Some(pubkey),
         encrypted_env: None,
