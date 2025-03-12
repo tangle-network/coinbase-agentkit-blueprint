@@ -2,8 +2,8 @@ use blueprint_sdk::logging;
 use blueprint_sdk::runners::core::runner::BlueprintRunner;
 use blueprint_sdk::runners::tangle::tangle::TangleConfig;
 use coinbase_agent_kit_blueprint as blueprint;
-use std::env;
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[blueprint_sdk::main(env)]
 async fn main() {
@@ -15,6 +15,7 @@ async fn main() {
         tee_enabled: None,
         phala_tee_api_endpoint: None,
         phala_tee_api_key: None,
+        agent_ports: Some(Arc::new(Mutex::new(HashMap::new()))),
     };
 
     // Create event handlers from jobs

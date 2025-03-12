@@ -1,12 +1,14 @@
 use crate::{
     types::{AgentConfig, AgentMode},
-    ServiceContext,
+    AgentPortConfig, ServiceContext,
 };
 use blueprint_sdk::config::GadgetConfiguration;
 use dotenv::dotenv;
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 
 pub mod create_agent_tests;
@@ -65,6 +67,8 @@ pub fn setup_test_env() -> (ServiceContext, PathBuf) {
         phala_tee_api_key: Some(
             env::var("PHALA_CLOUD_API_KEY").unwrap_or_else(|_| "mock_api_key".to_string()),
         ),
+        // Initialize the agent ports HashMap
+        agent_ports: Some(Arc::new(Mutex::new(HashMap::new()))),
     };
 
     // Ensure agents directory exists

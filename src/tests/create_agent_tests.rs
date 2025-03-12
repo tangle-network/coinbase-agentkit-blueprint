@@ -38,9 +38,9 @@ async fn test_create_agent_no_tee() {
             tee_config: None,
         },
         api_key_config: ApiKeyConfig {
-            openai_api_key: Some(
-                env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test-api-key".to_string()),
-            ),
+            openai_api_key: Some(env::var("OPENAI_API_KEY").unwrap()),
+            cdp_api_key_name: Some(env::var("CDP_API_KEY_NAME").unwrap()),
+            cdp_api_key_private_key: Some(env::var("CDP_API_KEY_PRIVATE_KEY").unwrap()),
         },
     };
 
@@ -105,9 +105,9 @@ async fn test_create_agent_with_tee() {
             tee_config: None,
         },
         api_key_config: ApiKeyConfig {
-            openai_api_key: Some(
-                env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test-api-key".to_string()),
-            ),
+            openai_api_key: Some(env::var("OPENAI_API_KEY").unwrap()),
+            cdp_api_key_name: Some(env::var("CDP_API_KEY_NAME").unwrap()),
+            cdp_api_key_private_key: Some(env::var("CDP_API_KEY_PRIVATE_KEY").unwrap()),
         },
     };
 

@@ -100,6 +100,7 @@ fn create_yaml_from_config(
         r#"version: '3'
 services:
   agent:
+    container_name: coinbase-agent-{}
     build:
       context: .
     ports:
@@ -115,7 +116,14 @@ services:
       - LOG_LEVEL=info
     restart: unless-stopped
 "#,
-        http_port, http_port, websocket_port, websocket_port, http_port, websocket_port, agent_id
+        agent_id,
+        http_port,
+        http_port,
+        websocket_port,
+        websocket_port,
+        http_port,
+        websocket_port,
+        agent_id
     )
 }
 
@@ -210,7 +218,7 @@ impl AgentEndpoint {
         Self::new(format!("http://localhost:{}", port))
     }
 
-    /// Checks if the agent's health endpoint is responding
+    /// Checks if the agent's health endpoint is responding with detailed diagnostics
     ///
     /// # Arguments
     ///
@@ -221,15 +229,136 @@ impl AgentEndpoint {
     /// A Result containing the health status or an error
     pub async fn check_health(&self, timeout: Duration) -> Result<Value, String> {
         let health_url = format!("{}/health", self.base_url);
-        self.http_client
-            .get(&health_url)
-            .timeout(timeout)
-            .send()
-            .await
-            .map_err(|e| format!("Health check request failed: {}", e))?
-            .json::<Value>()
-            .await
-            .map_err(|e| format!("Failed to parse health response: {}", e))
+
+        // Log the actual request we're making
+        blueprint_sdk::logging::info!("Sending health check request to: {}", health_url);
+
+        // Build the request with timeout
+        let request = self.http_client.get(&health_url).timeout(timeout);
+
+        // Try to send the request and handle different error cases
+        match request.send().await {
+            Ok(response) => {
+                let status = response.status();
+                blueprint_sdk::logging::info!("Health check response status: {}", status);
+
+                if status.is_success() {
+                    // Try to parse the response as JSON
+                    match response.json::<Value>().await {
+                        Ok(json) => {
+                            blueprint_sdk::logging::info!(
+                                "Health check successful with response: {:?}",
+                                json
+                            );
+                            Ok(json)
+                        }
+                        Err(e) => {
+                            blueprint_sdk::logging::warn!(
+                                "Health check returned non-JSON response: {}",
+                                e
+                            );
+                            Err(format!("Failed to parse health response: {}", e))
+                        }
+                    }
+                } else {
+                    // Handle non-200 responses
+                    let error_text = response
+                        .text()
+                        .await
+                        .unwrap_or_else(|_| "Could not read response body".to_string());
+                    blueprint_sdk::logging::warn!(
+                        "Health check failed with status {} and body: {}",
+                        status,
+                        error_text
+                    );
+                    Err(format!(
+                        "Health check returned error status: {} with body: {}",
+                        status, error_text
+                    ))
+                }
+            }
+            Err(e) => {
+                // Add more context based on the type of error
+                if e.is_timeout() {
+                    blueprint_sdk::logging::warn!("Health check timed out after {:?}", timeout);
+                    Err(format!("Health check timed out after {:?}: {}", timeout, e))
+                } else if e.is_connect() {
+                    blueprint_sdk::logging::warn!("Connection error during health check: {}", e);
+                    Err(format!("Connection error during health check: {}", e))
+                } else {
+                    blueprint_sdk::logging::warn!("Health check request failed: {}", e);
+                    Err(format!("Health check request failed: {}", e))
+                }
+            }
+        }
+    }
+
+    /// Waits for the agent to become healthy with detailed diagnostics
+    ///
+    /// # Arguments
+    ///
+    /// * `max_attempts` - Maximum number of health check attempts
+    /// * `initial_delay` - Time to wait before the first attempt
+    /// * `timeout` - Maximum time to wait for each health check response
+    ///
+    /// # Returns
+    ///
+    /// A Result indicating success or an error message
+    pub async fn wait_for_health(
+        &self,
+        max_attempts: u32,
+        initial_delay: Duration,
+        timeout: Duration,
+    ) -> Result<(), String> {
+        // Wait before first attempt
+        tokio::time::sleep(initial_delay).await;
+
+        // Track start time for overall statistics
+        let start_time = Instant::now();
+
+        for attempt in 1..=max_attempts {
+            blueprint_sdk::logging::info!(
+                "Health check attempt {} of {} for {}",
+                attempt,
+                max_attempts,
+                self.base_url
+            );
+
+            match self.check_health(timeout).await {
+                Ok(_) => {
+                    let duration = start_time.elapsed();
+                    blueprint_sdk::logging::info!(
+                        "Agent became healthy after {} attempts ({}ms)",
+                        attempt,
+                        duration.as_millis()
+                    );
+                    return Ok(());
+                }
+                Err(e) => {
+                    blueprint_sdk::logging::warn!("Health check attempt {} failed: {}", attempt, e);
+
+                    // If this isn't the last attempt, wait before trying again
+                    if attempt < max_attempts {
+                        // Increase delay with each failure using exponential backoff
+                        let delay = initial_delay.mul_f32(1.5_f32.powi(attempt as i32 - 1));
+                        blueprint_sdk::logging::info!("Waiting {:?} before next attempt", delay);
+                        tokio::time::sleep(delay).await;
+                    }
+                }
+            }
+        }
+
+        let total_duration = start_time.elapsed();
+        blueprint_sdk::logging::error!(
+            "Agent failed to become healthy after {} attempts ({}ms total time)",
+            max_attempts,
+            total_duration.as_millis()
+        );
+
+        Err(format!(
+            "Agent failed to become healthy after {} attempts",
+            max_attempts
+        ))
     }
 
     /// Sends a message to the agent and gets a response
@@ -254,51 +383,6 @@ impl AgentEndpoint {
             .json::<Value>()
             .await
             .map_err(|e| format!("Failed to parse interaction response: {}", e))
-    }
-
-    /// Waits for the agent to become healthy with retries
-    ///
-    /// # Arguments
-    ///
-    /// * `max_attempts` - Maximum number of health check attempts
-    /// * `initial_delay` - Initial delay between attempts
-    /// * `timeout` - Timeout for each health check request
-    ///
-    /// # Returns
-    ///
-    /// A Result indicating success or an error after max attempts
-    pub async fn wait_for_health(
-        &self,
-        max_attempts: u32,
-        initial_delay: Duration,
-        timeout: Duration,
-    ) -> Result<(), String> {
-        let mut delay = initial_delay;
-        let max_delay = Duration::from_secs(2); // Cap maximum delay at 2 seconds
-
-        for attempt in 1..=max_attempts {
-            match self.check_health(timeout).await {
-                Ok(_) => return Ok(()),
-                Err(e) => {
-                    if attempt == max_attempts {
-                        return Err(format!(
-                            "Agent failed to become healthy after {} attempts: {}",
-                            max_attempts, e
-                        ));
-                    }
-
-                    // Log the error and retry after delay
-                    eprintln!("Health check attempt {} failed: {}", attempt, e);
-                    tokio::time::sleep(delay).await;
-
-                    // Exponential backoff with a cap
-                    delay = std::cmp::min(delay * 2, max_delay);
-                }
-            }
-        }
-
-        // Shouldn't reach here due to early return, but just in case
-        Err("Failed to verify agent health".to_string())
     }
 }
 
@@ -358,22 +442,4 @@ pub fn cleanup_containers(name_pattern: &str) -> u32 {
         }
         Err(_) => 0,
     }
-}
-
-/// Create a helper function for testing with a mock TEE deployer
-#[cfg(test)]
-pub fn create_mock_tee_deployer(mock_teepod_id: u64) -> Result<TeeDeployer, String> {
-    let mock_deployer = TeeDeployerBuilder::new()
-        .with_api_key("mock_api_key".to_string())
-        .with_api_endpoint("https://cloud-api.phala.network/api/v1".to_string())
-        .build()
-        .map_err(|e| format!("Failed to create mock TeeDeployer: {}", e))?;
-
-    // For testing only, directly set the TEEPod ID using the TeeDeployer's internal API
-    #[allow(deprecated)]
-    mock_deployer
-        .select_teepod(mock_teepod_id)
-        .map_err(|e| format!("Failed to set mock TEEPod ID: {}", e))?;
-
-    Ok(mock_deployer)
 }

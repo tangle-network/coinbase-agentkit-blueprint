@@ -48,6 +48,8 @@ pub struct DeploymentConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ApiKeyConfig {
     pub openai_api_key: Option<String>,
+    pub cdp_api_key_name: Option<String>,
+    pub cdp_api_key_private_key: Option<String>,
 }
 
 // Job parameters and results
@@ -63,7 +65,7 @@ pub struct CreateAgentParams {
 pub struct DeployAgentParams {
     pub agent_id: String,
     pub api_key_config: Option<ApiKeyConfig>,
-    pub encrypted_env_vars: Option<String>,
+    pub encrypted_env: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -11,9 +11,8 @@ use crate::{
 use chrono::Local;
 use dotenv::dotenv;
 use rand;
-use reqwest;
 use std::{
-    env, thread,
+    env,
     time::{Duration, Instant},
 };
 
@@ -35,6 +34,13 @@ async fn test_deploy_agent_local() {
     // Load dotenv from the current directory for the test
     dotenv().ok();
 
+    // Clean up any existing containers at the start
+    log_with_timestamp("Cleaning up any existing containers...");
+    let removed = docker::cleanup_containers("coinbase-agent-");
+    if removed > 0 {
+        log_with_timestamp(&format!("Cleaned up {} existing containers", removed));
+    }
+
     // First create an agent
     let (context, _temp_dir) = setup_test_env();
 
@@ -53,9 +59,9 @@ async fn test_deploy_agent_local() {
             tee_config: None,
         },
         api_key_config: ApiKeyConfig {
-            openai_api_key: Some(
-                env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test-api-key".to_string()),
-            ),
+            openai_api_key: Some(env::var("OPENAI_API_KEY").unwrap()),
+            cdp_api_key_name: Some(env::var("CDP_API_KEY_NAME").unwrap()),
+            cdp_api_key_private_key: Some(env::var("CDP_API_KEY_PRIVATE_KEY").unwrap()),
         },
     };
 
@@ -76,11 +82,11 @@ async fn test_deploy_agent_local() {
     let deploy_params = DeployAgentParams {
         agent_id: create_result.agent_id,
         api_key_config: Some(ApiKeyConfig {
-            openai_api_key: Some(
-                env::var("OPENAI_API_KEY").unwrap_or_else(|_| "test-api-key".to_string()),
-            ),
+            openai_api_key: Some(env::var("OPENAI_API_KEY").unwrap()),
+            cdp_api_key_name: Some(env::var("CDP_API_KEY_NAME").unwrap()),
+            cdp_api_key_private_key: Some(env::var("CDP_API_KEY_PRIVATE_KEY").unwrap()),
         }),
-        encrypted_env_vars: None,
+        encrypted_env: None,
     };
 
     let deploy_params_bytes =
@@ -103,17 +109,9 @@ async fn test_deploy_agent_local() {
 }
 
 /// Test agent deployment and interaction with the deployed agent
-///
-/// Set SKIP_DEPLOY_TESTS=1 to skip this long-running test
 #[tokio::test]
 async fn test_deploy_agent_interaction() {
     let start_time = Instant::now();
-
-    // Skip if SKIP_DEPLOY_TESTS is set
-    if env::var("SKIP_DEPLOY_TESTS").unwrap_or_default() == "1" {
-        println!("Skipping deploy agent interaction test due to SKIP_DEPLOY_TESTS=1");
-        return;
-    }
 
     // Skip test if CI environment is detected
     if env::var("CI").is_ok() {
@@ -150,13 +148,9 @@ async fn test_deploy_agent_interaction() {
     let (context, _temp_dir) = setup_test_env();
 
     // Create agent parameters with valid OpenAI API key (required for actual interaction)
-    let openai_api_key = match env::var("OPENAI_API_KEY") {
-        Ok(key) if !key.is_empty() && key != "test-api-key" => key,
-        _ => {
-            log_with_timestamp("Skipping test as valid OPENAI_API_KEY is not available");
-            return;
-        }
-    };
+    let openai_api_key = env::var("OPENAI_API_KEY").unwrap();
+    let cdp_api_key_name = env::var("CDP_API_KEY_NAME").unwrap();
+    let cdp_api_key_private_key = env::var("CDP_API_KEY_PRIVATE_KEY").unwrap();
 
     // Use random ports to avoid conflicts
     let http_port = 10000 + (rand::random::<u16>() % 1000);
@@ -183,6 +177,8 @@ async fn test_deploy_agent_interaction() {
         },
         api_key_config: ApiKeyConfig {
             openai_api_key: Some(openai_api_key.clone()),
+            cdp_api_key_name: Some(cdp_api_key_name.clone()),
+            cdp_api_key_private_key: Some(cdp_api_key_private_key.clone()),
         },
     };
 
@@ -210,8 +206,10 @@ async fn test_deploy_agent_interaction() {
         agent_id: create_result.agent_id.clone(),
         api_key_config: Some(ApiKeyConfig {
             openai_api_key: Some(openai_api_key),
+            cdp_api_key_name: Some(cdp_api_key_name),
+            cdp_api_key_private_key: Some(cdp_api_key_private_key),
         }),
-        encrypted_env_vars: None,
+        encrypted_env: None,
     };
 
     let deploy_params_bytes =

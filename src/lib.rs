@@ -6,6 +6,8 @@ use blueprint_sdk::event_listeners::tangle::services::{
 };
 use blueprint_sdk::macros::contexts::{ServicesContext, TangleClientContext};
 use blueprint_sdk::tangle_subxt::tangle_testnet_runtime::api;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 // Public modules
 pub mod create_agent;
@@ -15,10 +17,17 @@ pub mod types;
 
 #[cfg(test)]
 mod tests;
-// Re-export types and functions
+
 pub use create_agent::handle_create_agent;
-pub use deploy_agent::handle_deploy_agent;
+pub use deploy_agent::{extract_port_config, handle_deploy_agent};
 pub use types::*;
+
+/// Port configuration for an agent with HTTP and WebSocket ports
+#[derive(Clone, Debug)]
+pub struct AgentPortConfig {
+    pub http_port: u16,
+    pub websocket_port: u16,
+}
 
 #[derive(Clone, TangleClientContext, ServicesContext)]
 pub struct ServiceContext {
@@ -31,6 +40,8 @@ pub struct ServiceContext {
     pub tee_enabled: Option<bool>,
     pub phala_tee_api_endpoint: Option<String>,
     pub phala_tee_api_key: Option<String>,
+    // Map of agent ID to port configuration (shared across threads)
+    pub agent_ports: Option<Arc<Mutex<HashMap<String, AgentPortConfig>>>>,
 }
 
 /// Creates a new Coinbase Agent Kit agent

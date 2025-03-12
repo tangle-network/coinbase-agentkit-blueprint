@@ -1,6 +1,6 @@
 use crate::docker;
 use crate::types::{AgentCreationResult, CreateAgentParams, TeeConfig};
-use crate::ServiceContext;
+use crate::{AgentPortConfig, ServiceContext};
 use blueprint_sdk::logging;
 use dockworker::ComposeConfig;
 use std::collections::HashMap;
@@ -31,34 +31,44 @@ pub async fn handle_create_agent(
     create_env_file(&params, &agent_dir)?;
     logging::info!("Created environment configuration");
 
-    // Create docker-compose.yml file
-    let http_port = params.deployment_config.http_port;
-    let websocket_port = http_port.map(|p| p + 1); // WebSocket port is HTTP port + 1
+    // Get HTTP port from params or use default 3000
+    let http_port = params.deployment_config.http_port.unwrap_or(3000);
+    let websocket_port = http_port + 1;
 
-    // Create environment variables for the Docker container
-    let mut env_vars = HashMap::new();
-    if let Some(api_key) = &params.api_key_config.openai_api_key {
-        env_vars.insert("OPENAI_API_KEY".to_string(), api_key.clone());
+    // Store port configuration in the context for later use during deployment
+    if let Some(agent_ports) = &context.agent_ports {
+        if let Ok(mut ports_map) = agent_ports.lock() {
+            ports_map.insert(
+                agent_id.clone(),
+                AgentPortConfig {
+                    http_port,
+                    websocket_port,
+                },
+            );
+            logging::info!(
+                "Registered agent {} with ports HTTP:{}, WS:{}",
+                agent_id,
+                http_port,
+                websocket_port
+            );
+        } else {
+            logging::warn!("Failed to lock agent_ports map for agent {}", agent_id);
+        }
+    } else {
+        logging::warn!("No agent_ports map available in context");
     }
 
-    // Add agent mode and model
-    env_vars.insert(
-        "AGENT_MODE".to_string(),
-        params.agent_config.mode.to_string().to_lowercase(),
-    );
-    env_vars.insert("MODEL".to_string(), params.agent_config.model.clone());
-
-    // Write the Docker Compose file
+    // Create Docker Compose file
+    let env_vars = HashMap::new(); // No additional env vars at creation time
     let compose_path = docker::write_docker_compose_file(
         &agent_dir,
         &agent_id,
-        http_port,
-        websocket_port,
+        Some(http_port),
+        Some(websocket_port),
         env_vars,
     )?;
-    logging::info!("Created Docker Compose file: {}", compose_path.display());
 
-    // Get TEE public key if TEE is enabled - directly use tee_enabled from params
+    // Prepare TEE config if enabled
     let tee_config = if params.deployment_config.tee_enabled {
         get_tee_public_key(&agent_dir, context).await?
     } else {
