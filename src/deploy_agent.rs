@@ -1,4 +1,5 @@
 use crate::docker;
+use crate::helpers::{check_agent_health, collect_container_diagnostics, inspect_container_env};
 use crate::types::{AgentDeploymentResult, DeployAgentParams};
 use crate::ServiceContext;
 use blueprint_sdk::logging;
@@ -9,6 +10,8 @@ use serde_yaml;
 use std::fs;
 use std::path::Path;
 use uuid::Uuid;
+use url;
+use reqwest;
 
 /// Handles the deploy_agent job
 pub async fn handle_deploy_agent(
@@ -265,23 +268,11 @@ async fn deploy_locally(
     let endpoint = format!("http://localhost:{}", port);
     logging::info!("Agent deployed with endpoint: {}", endpoint);
 
-    // Wait a moment for container to initialize
-    logging::info!("Waiting 5 seconds for container to initialize...");
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-
-    // Check if the port is actually open
-    let netstat_output = tokio::process::Command::new("lsof")
-        .args(&["-i", &format!(":{}", port)])
-        .output()
-        .await;
-
-    if let Ok(output) = netstat_output {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        logging::info!("Port {} status:\n{}", port, stdout);
-
-        if stdout.is_empty() {
-            logging::warn!("No process appears to be listening on port {}", port);
-        }
+    // Wait for the container to start and collect diagnostics
+    let diagnostics_result = collect_container_diagnostics(&container_name, port).await;
+    match &diagnostics_result {
+        Ok(details) => logging::info!("Container diagnostics: {}", details),
+        Err(e) => logging::warn!("Failed to collect container diagnostics: {}", e),
     }
 
     // Check if the agent is healthy
@@ -289,20 +280,14 @@ async fn deploy_locally(
         Ok(_) => logging::info!("Agent is healthy and ready for use"),
         Err(e) => {
             // Log error but continue - we'll return the deployment result anyway
-            logging::error!("Agent health check failed but continuing deployment: {}", e);
+            logging::error!("Agent health check failed: {}", e);
 
-            // Get additional container diagnostic information
-            logging::info!("Getting container diagnostics...");
-            let inspect_output = tokio::process::Command::new("docker")
-                .args(&["inspect", &container_name])
-                .output()
-                .await;
-
-            if let Ok(output) = inspect_output {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                logging::info!("Container inspection:\n{}", stdout);
+            // Get detailed diagnostics if the first attempt failed
+            if diagnostics_result.is_err() {
+                let _ = collect_container_diagnostics(&container_name, port).await
+                    .map(|details| logging::info!("Additional container diagnostics after health check failure: {}", details));
             }
-
+            
             // Check logs again after health check failure
             let _ = tokio::process::Command::new("docker")
                 .args(&["logs", &container_name])
@@ -310,10 +295,24 @@ async fn deploy_locally(
                 .await
                 .map(|output| {
                     let stdout = String::from_utf8_lossy(&output.stdout);
-                    logging::info!(
-                        "Latest container logs after health check failure:\n{}",
-                        stdout
-                    );
+                    logging::info!("Latest container logs after health check failure:\n{}", stdout);
+                    
+                    // Check for specific error patterns in logs
+                    if stdout.contains("Failed to initialize wallet") {
+                        logging::error!("DETECTED ERROR: Wallet initialization failed - CDP credentials may be invalid");
+                        
+                        // Inspect container environment to verify CDP credentials were passed correctly
+                        tokio::spawn(async move {
+                            match inspect_container_env(&container_name).await {
+                                Ok(env_info) => logging::info!("Container environment inspection:\n{}", env_info),
+                                Err(e) => logging::error!("Failed to inspect container environment: {}", e),
+                            }
+                        });
+                    } else if stdout.contains("EADDRINUSE") {
+                        logging::error!("DETECTED ERROR: Port already in use - container cannot bind to the required port");
+                    } else if stdout.contains("Out of memory") || stdout.contains("Killed") {
+                        logging::error!("DETECTED ERROR: Container terminated due to memory constraints");
+                    }
                 });
         }
     };
@@ -330,6 +329,7 @@ async fn deploy_locally(
     // Serialize the result
     serde_json::to_vec(&result).map_err(|e| format!("Failed to serialize result: {}", e))
 }
+
 
 /// Helper function to get agent ports - either from context or extracted from docker-compose
 fn get_agent_ports(
@@ -367,124 +367,52 @@ fn create_env_content(
     container_name: &str,
     params: &DeployAgentParams,
 ) -> Result<String, String> {
-    let mut env_content = String::new();
+    // Get API config or fail early
+    let api_config = params.api_key_config.as_ref()
+        .ok_or_else(|| "API key configuration is required".to_string())?;
 
-    // Add basic configuration with the port
-    env_content.push_str(&format!("PORT={}\n", port));
-    env_content.push_str(&format!("WEBSOCKET_PORT={}\n", websocket_port));
-    env_content.push_str(&format!("CONTAINER_NAME={}\n", container_name));
-    env_content.push_str("NODE_ENV=development\n");
-    env_content.push_str("AGENT_MODE=http\n"); // Support both http and websocket
-    env_content.push_str("MODEL=gpt-4o-mini\n");
-    env_content.push_str("LOG_LEVEL=debug\n");
-    env_content.push_str(&format!(
-        "WEBSOCKET_URL=ws://localhost:{}\n",
-        websocket_port
-    ));
-
-    // Get API keys from params
-    let api_config = params.api_key_config.as_ref().ok_or_else(|| {
-        "API key configuration is required. No test values will be provided.".to_string()
-    })?;
-
-    // Get required API keys, falling back to env vars if needed
-    let openai_api_key = api_config
-        .openai_api_key
-        .as_ref()
+    // Get required API keys or fail
+    let openai_api_key = api_config.openai_api_key.as_ref()
         .map(|s| s.to_string())
         .or_else(|| std::env::var("OPENAI_API_KEY").ok())
-        .ok_or_else(|| "OPENAI_API_KEY not found in ApiKeyConfig or environment".to_string())?;
+        .ok_or_else(|| "OPENAI_API_KEY not found in config or environment".to_string())?;
 
-    let cdp_api_key_name = api_config
-        .cdp_api_key_name
-        .as_ref()
+    let cdp_api_key_name = api_config.cdp_api_key_name.as_ref()
         .map(|s| s.to_string())
         .or_else(|| std::env::var("CDP_API_KEY_NAME").ok())
-        .ok_or_else(|| "CDP_API_KEY_NAME not found in ApiKeyConfig or environment".to_string())?;
+        .ok_or_else(|| "CDP_API_KEY_NAME not found in config or environment".to_string())?;
 
-    let cdp_api_key_private_key = api_config
-        .cdp_api_key_private_key
-        .as_ref()
+    let cdp_api_key_private_key = api_config.cdp_api_key_private_key.as_ref()
         .map(|s| s.to_string())
         .or_else(|| std::env::var("CDP_API_KEY_PRIVATE_KEY").ok())
-        .ok_or_else(|| {
-            "CDP_API_KEY_PRIVATE_KEY not found in ApiKeyConfig or environment".to_string()
-        })?;
+        .ok_or_else(|| "CDP_API_KEY_PRIVATE_KEY not found in config or environment".to_string())?;
 
-    // Add API keys and test flag to env content
-    env_content.push_str(&format!("OPENAI_API_KEY={}\n", openai_api_key));
-    env_content.push_str(&format!("CDP_API_KEY_NAME={}\n", cdp_api_key_name));
-    env_content.push_str(&format!(
-        "CDP_API_KEY_PRIVATE_KEY={}\n",
-        cdp_api_key_private_key
-    ));
-    env_content.push_str("RUN_TESTS=false\n");
-
-    Ok(env_content)
-}
-
-/// Helper function to check if an agent is healthy
-async fn check_agent_health(endpoint: &str) -> Result<(), String> {
-    logging::info!("Starting health check for endpoint: {}", endpoint);
-    let agent = docker::AgentEndpoint::new(endpoint);
-
-    // Define parameters more explicitly for better debugging
-    let max_attempts = 15;
-    let initial_delay = std::time::Duration::from_millis(500);
-    let timeout = std::time::Duration::from_secs(3); // Increase timeout a bit
-
-    logging::info!(
-        "Health check parameters: {} attempts, {}ms initial delay, {}s timeout",
-        max_attempts,
-        initial_delay.as_millis(),
-        timeout.as_secs()
-    );
-
-    // Try each health check attempt with detailed logging
-    for attempt in 1..=max_attempts {
-        logging::info!(
-            "Starting health check attempt {} of {}",
-            attempt,
-            max_attempts
-        );
-
-        // Add a small delay between attempts that increases with each failure
-        if attempt > 1 {
-            let delay = initial_delay.mul_f32(1.0 + (attempt as f32 * 0.2));
-            logging::info!("Waiting {}ms before next attempt", delay.as_millis());
-            tokio::time::sleep(delay).await;
-        }
-
-        // Perform the health check with detailed error logging
-        match agent.check_health(timeout).await {
-            Ok(_) => {
-                logging::info!("Health check successful on attempt {}", attempt);
-                return Ok(());
-            }
-            Err(e) => {
-                // Provide more context about the error
-                logging::warn!("Health check attempt {} failed: {}", attempt, e);
-
-                // Try to determine if this is a network error or application error
-                if e.to_string().contains("connection refused") {
-                    logging::warn!("Container may not be listening on port (connection refused)");
-                } else if e.to_string().contains("connection closed") {
-                    logging::warn!(
-                        "Connection was reset - container may be starting up or crashing"
-                    );
-                }
-            }
-        }
+    // Validate keys are not empty
+    if cdp_api_key_name.trim().is_empty() {
+        return Err("CDP_API_KEY_NAME is empty".to_string());
+    }
+    if cdp_api_key_private_key.trim().is_empty() {
+        return Err("CDP_API_KEY_PRIVATE_KEY is empty".to_string());
     }
 
-    // If we reach here, health check failed after all attempts
-    let error_msg = format!(
-        "Agent failed to become healthy after {} attempts",
-        max_attempts
+    // Build environment content
+    let env_content = format!(
+        "PORT={port}\n\
+         WEBSOCKET_PORT={websocket_port}\n\
+         CONTAINER_NAME={container_name}\n\
+         NODE_ENV=development\n\
+         AGENT_MODE=http\n\
+         MODEL=gpt-4o-mini\n\
+         LOG_LEVEL=debug\n\
+         WEBSOCKET_URL=ws://localhost:{websocket_port}\n\
+         OPENAI_API_KEY={openai_api_key}\n\
+         CDP_API_KEY_NAME={cdp_api_key_name}\n\
+         CDP_API_KEY_PRIVATE_KEY={cdp_api_key_private_key}\n\
+         RUN_TESTS=false\n"
     );
-    logging::error!("{}", error_msg);
 
-    Err(error_msg)
+    logging::info!("Environment content created with {} variables", env_content.lines().count());
+    Ok(env_content)
 }
 
 /// Helper function to extract port configuration from docker-compose.yml
@@ -551,30 +479,4 @@ pub fn extract_port_config(compose_path: impl AsRef<Path>) -> Result<(u16, u16),
     logging::info!("Using WebSocket port {}", websocket_port);
 
     Ok((http_port, websocket_port))
-}
-
-/// Get the IP address of a Docker container
-async fn get_container_ip(container_name: &str) -> Result<String, String> {
-    let output = tokio::process::Command::new("docker")
-        .args(&[
-            "inspect",
-            "-f",
-            "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}",
-            container_name,
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("Failed to get container IP: {}", e))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Failed to get container IP: {}", stderr));
-    }
-
-    let ip = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if ip.is_empty() {
-        return Err("Container IP not found".to_string());
-    }
-
-    Ok(ip)
 }

@@ -22,8 +22,10 @@ services:
       - WEBSOCKET_URL=${WEBSOCKET_URL}
       - AGENT_MODE=${AGENT_MODE:-http}
       - MODEL=${MODEL:-gpt-4o-mini}
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    # Remove volumes to prevent install issues
+      - LOG_LEVEL=${LOG_LEVEL:-debug}
+    # Add explicit volumes for .env file to ensure variables are available
+    volumes:
+      - ./.env:/app/.env:ro
     command: sh -c "yarn install && yarn dev"
     restart: unless-stopped
     healthcheck:

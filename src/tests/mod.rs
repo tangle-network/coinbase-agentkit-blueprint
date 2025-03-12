@@ -35,7 +35,7 @@ pub fn setup_test_env() -> (ServiceContext, PathBuf) {
     let env_file_path = temp_dir.join(".env");
     fs::write(
         &env_file_path,
-        "OPENAI_API_KEY=test-api-key\nPHALA_CLOUD_API_KEY=mock_api_key\nPHALA_CLOUD_API_ENDPOINT=https://example.com/api\n"
+        "OPENAI_API_KEY=test-api-key\nCDP_API_KEY_NAME=test-cdp-name\nCDP_API_KEY_PRIVATE_KEY=test-cdp-key\nPHALA_CLOUD_API_KEY=mock_api_key\nPHALA_CLOUD_API_ENDPOINT=https://example.com/api\n"
     ).expect("Failed to create .env file");
 
     // Load the .env file
@@ -44,7 +44,7 @@ pub fn setup_test_env() -> (ServiceContext, PathBuf) {
     // Create a minimal docker-compose.yml file
     fs::write(
         template_dir.join("docker-compose.yml"),
-        "version: '3'\nservices:\n  agent:\n    build: .\n    ports:\n      - '3000:3000'\n    environment:\n      - PORT=3000\n"
+        "version: '3'\nservices:\n  agent:\n    build: .\n    ports:\n      - '3000:3000'\n    environment:\n      - PORT=3000\n      - OPENAI_API_KEY=${OPENAI_API_KEY}\n      - CDP_API_KEY_NAME=${CDP_API_KEY_NAME}\n      - CDP_API_KEY_PRIVATE_KEY=${CDP_API_KEY_PRIVATE_KEY}\n"
     ).expect("Failed to create docker-compose.yml");
 
     // Create a simple package.json file

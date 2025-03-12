@@ -10,9 +10,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 // Public modules
+pub mod agent_endpoint;
 pub mod create_agent;
 pub mod deploy_agent;
 pub mod docker;
+pub mod helpers;
 pub mod types;
 
 #[cfg(test)]

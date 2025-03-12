@@ -3154,6 +3154,7 @@ dependencies = [
  "serde_yaml",
  "tempfile",
  "tokio",
+ "url",
  "uuid 1.14.0",
  "warp",
 ]

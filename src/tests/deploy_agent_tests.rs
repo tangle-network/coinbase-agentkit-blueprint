@@ -1,7 +1,8 @@
 use crate::{
+    agent_endpoint::AgentEndpoint,
     create_agent::handle_create_agent,
     deploy_agent::handle_deploy_agent,
-    docker::{self, AgentEndpoint},
+    docker,
     tests::setup_test_env,
     types::{
         AgentConfig, AgentCreationResult, AgentDeploymentResult, AgentMode, ApiKeyConfig,
@@ -134,7 +135,41 @@ async fn test_deploy_agent_interaction() {
     }
 
     // Load dotenv from the current directory for the test
-    dotenv().ok();
+    log_with_timestamp("Loading environment variables from .env file");
+    if dotenv().is_err() {
+        log_with_timestamp("Warning: Failed to load .env file");
+    }
+
+    // Explicitly check for CDP API variables in the environment
+    log_with_timestamp("Checking required environment variables...");
+    let mut missing_vars = Vec::new();
+
+    // Check OpenAI API Key
+    if env::var("OPENAI_API_KEY").is_err() {
+        missing_vars.push("OPENAI_API_KEY");
+    }
+
+    // Check CDP API Keys - critical for wallet initialization
+    if env::var("CDP_API_KEY_NAME").is_err() {
+        missing_vars.push("CDP_API_KEY_NAME");
+    }
+
+    if env::var("CDP_API_KEY_PRIVATE_KEY").is_err() {
+        missing_vars.push("CDP_API_KEY_PRIVATE_KEY");
+    }
+
+    if !missing_vars.is_empty() {
+        log_with_timestamp(&format!(
+            "Test cannot proceed. Missing required environment variables: {}",
+            missing_vars.join(", ")
+        ));
+        log_with_timestamp("Please ensure these variables are correctly set in your .env file:");
+        log_with_timestamp("  CDP_API_KEY_NAME=your_cdp_key_name");
+        log_with_timestamp("  CDP_API_KEY_PRIVATE_KEY=your_cdp_private_key");
+        return;
+    }
+
+    log_with_timestamp("All required environment variables are set");
 
     // Clean up any existing containers at the start
     log_with_timestamp("Cleaning up any existing containers...");
@@ -145,12 +180,24 @@ async fn test_deploy_agent_interaction() {
 
     // First create an agent
     log_with_timestamp("Setting up test environment");
-    let (context, _temp_dir) = setup_test_env();
+    let (context, temp_dir) = setup_test_env();
 
-    // Create agent parameters with valid OpenAI API key (required for actual interaction)
+    // Create agent parameters with valid API keys from environment
     let openai_api_key = env::var("OPENAI_API_KEY").unwrap();
     let cdp_api_key_name = env::var("CDP_API_KEY_NAME").unwrap();
     let cdp_api_key_private_key = env::var("CDP_API_KEY_PRIVATE_KEY").unwrap();
+
+    // Log abbreviated credential information (for security)
+    log_with_timestamp("Using CDP credentials from .env file:");
+    log_with_timestamp(&format!(
+        "  CDP_API_KEY_NAME: {}...{}",
+        &cdp_api_key_name.chars().take(8).collect::<String>(),
+        &cdp_api_key_name.chars().rev().take(4).collect::<String>()
+    ));
+    log_with_timestamp(&format!(
+        "  CDP_API_KEY_PRIVATE_KEY: {}...[REDACTED]",
+        &cdp_api_key_private_key.chars().take(12).collect::<String>()
+    ));
 
     // Use random ports to avoid conflicts
     let http_port = 10000 + (rand::random::<u16>() % 1000);
