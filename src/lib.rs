@@ -10,6 +10,7 @@ use blueprint_sdk::tangle_subxt::tangle_testnet_runtime::api;
 // Public modules
 pub mod create_agent;
 pub mod deploy_agent;
+pub mod docker;
 pub mod types;
 
 #[cfg(test)]
@@ -26,23 +27,10 @@ pub struct ServiceContext {
     #[call_id]
     pub call_id: Option<u64>,
     // Environment variables needed for the service
-    pub agent_base_dir: Option<String>,
+    pub agents_base_dir: Option<String>,
     pub tee_enabled: Option<bool>,
-    pub tee_provider: Option<String>,
-    pub tee_api_key: Option<String>,
-}
-
-impl ServiceContext {
-    pub fn get_env_var(&self, key: &str) -> Option<String> {
-        match key {
-            "AGENT_BASE_DIR" => self.agent_base_dir.clone(),
-            "TEE_ENABLED" => self.tee_enabled.map(|t| t.to_string()),
-            "TEE_PROVIDER" => self.tee_provider.clone(),
-            "TEE_API_KEY" => self.tee_api_key.clone(),
-            _ => None,
-        }
-        .or_else(|| std::env::var(key).ok())
-    }
+    pub phala_tee_api_endpoint: Option<String>,
+    pub phala_tee_api_key: Option<String>,
 }
 
 /// Creates a new Coinbase Agent Kit agent

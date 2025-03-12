@@ -1,8 +1,8 @@
+use crate::docker;
 use crate::types::{AgentCreationResult, CreateAgentParams, TeeConfig};
 use crate::ServiceContext;
 use blueprint_sdk::logging;
-use phala_tee_deploy_rs::{DeploymentConfig as TeeDeployConfig, TeeClient};
-use serde_json;
+use dockworker::ComposeConfig;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,9 +31,36 @@ pub async fn handle_create_agent(
     create_env_file(&params, &agent_dir)?;
     logging::info!("Created environment configuration");
 
-    // Get TEE public key if TEE is enabled
+    // Create docker-compose.yml file
+    let http_port = params.deployment_config.http_port;
+    let websocket_port = http_port.map(|p| p + 1); // WebSocket port is HTTP port + 1
+
+    // Create environment variables for the Docker container
+    let mut env_vars = HashMap::new();
+    if let Some(api_key) = &params.api_key_config.openai_api_key {
+        env_vars.insert("OPENAI_API_KEY".to_string(), api_key.clone());
+    }
+
+    // Add agent mode and model
+    env_vars.insert(
+        "AGENT_MODE".to_string(),
+        params.agent_config.mode.to_string().to_lowercase(),
+    );
+    env_vars.insert("MODEL".to_string(), params.agent_config.model.clone());
+
+    // Write the Docker Compose file
+    let compose_path = docker::write_docker_compose_file(
+        &agent_dir,
+        &agent_id,
+        http_port,
+        websocket_port,
+        env_vars,
+    )?;
+    logging::info!("Created Docker Compose file: {}", compose_path.display());
+
+    // Get TEE public key if TEE is enabled - directly use tee_enabled from params
     let tee_config = if params.deployment_config.tee_enabled {
-        get_tee_public_key(context).await?
+        get_tee_public_key(&agent_dir, context).await?
     } else {
         None
     };
@@ -44,10 +71,7 @@ pub async fn handle_create_agent(
         files_created: vec![
             agent_dir.join(".env").to_string_lossy().to_string(),
             agent_dir.join("package.json").to_string_lossy().to_string(),
-            agent_dir
-                .join("docker-compose.yml")
-                .to_string_lossy()
-                .to_string(),
+            compose_path.to_string_lossy().to_string(),
         ],
         tee_public_key: tee_config.as_ref().and_then(|c| c.pubkey.clone()),
         tee_pubkey: tee_config.as_ref().and_then(|c| c.pubkey.clone()),
@@ -62,10 +86,11 @@ pub async fn handle_create_agent(
 
 /// Sets up the agent directory by copying the starter template
 fn setup_agent_directory(agent_id: &str, context: &ServiceContext) -> Result<PathBuf, String> {
-    // Define base directory from context or environment
-    let base_dir = context
-        .get_env_var("AGENT_BASE_DIR")
-        .unwrap_or_else(|| "./agents".to_string());
+    // Define base directory directly from context
+    let base_dir = match &context.agents_base_dir {
+        Some(dir) => dir.clone(),
+        None => "./agents".to_string(),
+    };
 
     // Create the base directory if it doesn't exist
     fs::create_dir_all(&base_dir).map_err(|e| format!("Failed to create base directory: {}", e))?;
@@ -80,15 +105,59 @@ fn setup_agent_directory(agent_id: &str, context: &ServiceContext) -> Result<Pat
     Ok(agent_dir)
 }
 
-/// Copies the starter template to the agent directory
+/// Copies the starter template to the agent directory and installs dependencies
 fn copy_starter_template(agent_dir: &Path) -> Result<(), String> {
     let template_dir = PathBuf::from("templates/starter");
     if !template_dir.exists() {
         return Err("Starter template directory not found".to_string());
     }
 
-    // Use fs::read_dir and recursively copy files instead of shell command
-    copy_dir_contents(&template_dir, agent_dir)
+    // Copy all files from the template directory to the agent directory
+    copy_dir_contents(&template_dir, agent_dir)?;
+
+    // Run yarn install in the agent directory to set up node_modules
+    logging::info!(
+        "Installing dependencies in agent directory: {}",
+        agent_dir.display()
+    );
+    // Try with Yarn 4 syntax
+    match std::process::Command::new("yarn")
+        .args(&["install"])
+        .current_dir(agent_dir)
+        .status()
+    {
+        Ok(status) if status.success() => {
+            logging::info!("Successfully installed dependencies");
+            Ok(())
+        }
+        Ok(_) => {
+            logging::warn!("Failed to install dependencies with yarn, but continuing");
+
+            // As a fallback, try with npm
+            logging::info!("Trying npm install as fallback");
+            match std::process::Command::new("npm")
+                .args(&["install"])
+                .current_dir(agent_dir)
+                .status()
+            {
+                Ok(status) if status.success() => {
+                    logging::info!("Successfully installed dependencies with npm");
+                }
+                Ok(_) => {
+                    logging::warn!("Failed to install dependencies with npm, but continuing");
+                }
+                Err(e) => {
+                    logging::warn!("Error running npm install: {}", e);
+                }
+            }
+
+            Ok(()) // Continue even if install fails
+        }
+        Err(e) => {
+            logging::warn!("Error running yarn install: {}", e);
+            Ok(()) // Continue even if yarn install fails
+        }
+    }
 }
 
 /// Recursively copy directory contents
@@ -146,58 +215,87 @@ fn copy_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Get TEE public key for environment variable encryption
-async fn get_tee_public_key(context: &ServiceContext) -> Result<Option<TeeConfig>, String> {
-    let tee_api_key = match context.get_env_var("PHALA_CLOUD_API_KEY") {
-        Some(key) => key,
-        None => return Ok(None),
-    };
+/// Get TEE public key for environment variable encryption using TeeDeployer
+async fn get_tee_public_key(
+    agent_dir: &Path,
+    context: &ServiceContext,
+) -> Result<Option<TeeConfig>, String> {
+    // Get API key directly from context
+    let tee_api_key = context
+        .phala_tee_api_key
+        .as_ref()
+        .ok_or("PHALA_CLOUD_API_KEY not set")?;
 
-    let teepod_id = match context.get_env_var("PHALA_TEEPOD_ID") {
-        Some(id) => id
-            .parse::<u64>()
-            .map_err(|e| format!("Invalid PHALA_TEEPOD_ID: {}", e))?,
-        None => return Ok(None),
-    };
-
+    // Get API endpoint from environment
     let tee_api_endpoint = context
-        .get_env_var("PHALA_CLOUD_API_ENDPOINT")
-        .unwrap_or_else(|| "https://cloud-api.phala.network/api/v1".to_string());
+        .phala_tee_api_endpoint
+        .as_ref()
+        .ok_or("PHALA_CLOUD_API_ENDPOINT not set")?;
 
-    // Initialize TEE client with minimal config
-    let tee_config = TeeDeployConfig::new(
-        tee_api_key.clone(),
-        String::new(), // Empty docker compose since we don't need it yet
-        HashMap::new(),
-        teepod_id,
-        "phala-worker:latest".to_string(),
+    logging::info!("Initializing TeeDeployer for public key retrieval");
+
+    // Initialize the TeeDeployer
+    let mut deployer = docker::init_tee_deployer(tee_api_key, tee_api_endpoint)?;
+
+    // Discover an available TEEPod
+    logging::info!("Discovering available TEEPods...");
+    deployer
+        .discover_teepod()
+        .await
+        .map_err(|e| format!("Failed to discover TEEPods: {}", e))?;
+
+    // Read docker-compose.yml from the agent directory
+    let docker_compose_path = agent_dir.join("docker-compose.yml");
+    let docker_compose = fs::read_to_string(&docker_compose_path)
+        .map_err(|e| format!("Failed to read docker-compose.yml: {}", e))?;
+
+    // Create VM configuration using TeeDeployer's native method
+    logging::info!("Creating VM configuration from Docker Compose");
+
+    // Parse docker-compose.yml to ComposeConfig using dockworker
+    let compose_config: ComposeConfig = serde_yaml::from_str(&docker_compose)
+        .map_err(|e| format!("Failed to parse docker-compose.yml: {}", e))?;
+
+    // Use TeeDeployer's built-in create_vm_config method
+    let app_name = format!(
+        "coinbase-agent-{}",
+        agent_dir.file_name().unwrap().to_string_lossy()
     );
+    let vm_config = deployer
+        .create_vm_config(
+            &compose_config,
+            &app_name,
+            Some(2),    // vcpu
+            Some(2048), // memory in MB
+            Some(10),   // disk size in GB
+        )
+        .map_err(|e| format!("Failed to create VM configuration: {}", e))?;
 
-    let client = TeeClient::new(tee_config)
-        .map_err(|e| format!("Failed to initialize TEE client: {}", e))?;
-
-    // Get encryption key for environment variables
-    let vm_config = serde_json::json!({
-        "teepod_id": teepod_id,
-        "image": "phala-worker:latest"
-    });
-
-    let pubkey_response = client
+    // Get the public key for this VM configuration
+    logging::info!("Requesting encryption public key...");
+    let pubkey_response = deployer
         .get_pubkey_for_config(&vm_config)
         .await
         .map_err(|e| format!("Failed to get TEE public key: {}", e))?;
 
     let pubkey = pubkey_response["app_env_encrypt_pubkey"]
         .as_str()
-        .ok_or_else(|| "Invalid public key response".to_string())?
+        .ok_or_else(|| "Missing public key in response".to_string())?
         .to_string();
+
+    let salt = pubkey_response["app_id_salt"]
+        .as_str()
+        .ok_or_else(|| "Missing salt in response".to_string())?
+        .to_string();
+
+    logging::info!("Successfully obtained TEE public key");
 
     Ok(Some(TeeConfig {
         enabled: true,
-        api_key: Some(tee_api_key),
-        api_endpoint: Some(tee_api_endpoint),
-        teepod_id: Some(teepod_id),
-        app_id: None,
+        api_key: Some(tee_api_key.clone()),
+        api_endpoint: Some(tee_api_endpoint.clone()),
+        teepod_id: None, // No need to extract TEEPod ID - managed by TeeDeployer
+        app_id: Some(salt),
         pubkey: Some(pubkey),
         encrypted_env: None,
     }))

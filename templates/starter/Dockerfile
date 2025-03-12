@@ -10,11 +10,11 @@ RUN corepack enable
 # Copy package files
 COPY package.json yarn.lock ./
 
-# Install dependencies
-RUN yarn install
-
-# Copy application code
+# Copy application code first 
 COPY . .
+
+# Install dependencies (yarn handles install using appropriate package manager command)
+RUN corepack prepare yarn@stable --activate && yarn install
 
 # Default values which can be overridden at runtime
 ENV PORT=3000
@@ -29,5 +29,5 @@ EXPOSE 3000
 EXPOSE 3001
 EXPOSE 4567
 
-# Use bash to run commands so environment variables are properly expanded
-ENTRYPOINT ["yarn", "start"]
+# Use bash to ensure we can run setup steps before starting
+ENTRYPOINT ["sh", "-c", "yarn install && yarn start"]

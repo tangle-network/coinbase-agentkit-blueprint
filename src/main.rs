@@ -11,10 +11,10 @@ async fn main() {
     let context = blueprint::ServiceContext {
         config: env.clone(),
         call_id: None,
-        agent_base_dir: None,
+        agents_base_dir: None,
         tee_enabled: None,
-        tee_provider: None,
-        tee_api_key: None,
+        phala_tee_api_endpoint: None,
+        phala_tee_api_key: None,
     };
 
     // Create event handlers from jobs
