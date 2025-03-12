@@ -6,22 +6,26 @@ use crate::{
         DeploymentConfig,
     },
 };
-use dotenv::dotenv;
 use std::env;
+
+/// Log a message with timestamp for test output
+fn log(msg: &str) {
+    println!("[{}] {}", chrono::Local::now().format("%H:%M:%S%.3f"), msg);
+}
 
 /// Test agent creation without TEE
 #[tokio::test]
 async fn test_create_agent_no_tee() {
-    // Skip test if CI environment is detected
-    if env::var("CI").is_ok() {
-        println!("Skipping test in CI environment");
+    // Set up test environment and check requirements
+    let (context, _temp_dir, missing) = setup_test_env();
+
+    // Skip test if requirements not met
+    if !missing.is_empty() {
+        for issue in missing {
+            log(&format!("Skipping test: {}", issue));
+        }
         return;
     }
-
-    // Load dotenv from the current directory for the test
-    dotenv().ok();
-
-    let (context, _temp_dir) = setup_test_env();
 
     // Create agent parameters
     let params = CreateAgentParams {
@@ -70,16 +74,16 @@ async fn test_create_agent_no_tee() {
 /// Test agent creation with TEE enabled
 #[tokio::test]
 async fn test_create_agent_with_tee() {
-    // Skip test if CI environment is detected
-    if env::var("CI").is_ok() {
-        println!("Skipping test in CI environment");
+    // Set up test environment and check requirements
+    let (mut context, _temp_dir, missing) = setup_test_env();
+
+    // Skip test if requirements not met
+    if !missing.is_empty() {
+        for issue in missing {
+            log(&format!("Skipping test: {}", issue));
+        }
         return;
     }
-
-    // Load dotenv from the current directory for the test
-    dotenv().ok();
-
-    let mut context = setup_test_env().0;
 
     // Enable TEE and set required config
     context.tee_enabled = Some(true);

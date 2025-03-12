@@ -1,6 +1,6 @@
 use crate::{
     types::{AgentConfig, AgentMode},
-    AgentPortConfig, ServiceContext,
+    ServiceContext,
 };
 use blueprint_sdk::config::GadgetConfiguration;
 use dotenv::dotenv;
@@ -15,7 +15,42 @@ pub mod create_agent_tests;
 pub mod deploy_agent_tests;
 
 /// Helper function to set up a temporary test environment
-pub fn setup_test_env() -> (ServiceContext, PathBuf) {
+/// Returns a tuple with (ServiceContext, temporary directory path, Vec of missing requirements)
+/// If the Vec is empty, all requirements are met
+pub fn setup_test_env() -> (ServiceContext, PathBuf, Vec<String>) {
+    // Load .env file
+    dotenv().ok();
+
+    let mut missing_requirements = Vec::new();
+
+    // Check for CI environment - tests should be skipped in CI
+    if env::var("CI").is_ok() {
+        missing_requirements.push("Test running in CI environment".to_string());
+    }
+
+    // Check for required environment variables
+    let required_vars = [
+        "OPENAI_API_KEY",
+        "CDP_API_KEY_NAME",
+        "CDP_API_KEY_PRIVATE_KEY",
+    ];
+    for var in required_vars {
+        if env::var(var).is_err() {
+            missing_requirements.push(format!("Missing environment variable: {}", var));
+        }
+    }
+
+    // Check Docker availability for deployment tests
+    let docker_available = std::process::Command::new("docker")
+        .arg("--version")
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+
+    if !docker_available {
+        missing_requirements.push("Docker is not available".to_string());
+    }
+
     // Create a temporary directory for the test
     let temp_dir = tempdir()
         .expect("Failed to create temp directory")
@@ -31,50 +66,34 @@ pub fn setup_test_env() -> (ServiceContext, PathBuf) {
         "OPENAI_API_KEY=your_openai_api_key_here\nAGENT_MODE=cli-chat\n# MODEL=gpt-4o-mini\nAGENT_PORT=3000\n"
     ).expect("Failed to create .env.example");
 
-    // Create an actual .env file for tests in the temp directory root
-    let env_file_path = temp_dir.join(".env");
-    fs::write(
-        &env_file_path,
-        "OPENAI_API_KEY=test-api-key\nCDP_API_KEY_NAME=test-cdp-name\nCDP_API_KEY_PRIVATE_KEY=test-cdp-key\nPHALA_CLOUD_API_KEY=mock_api_key\nPHALA_CLOUD_API_ENDPOINT=https://example.com/api\n"
-    ).expect("Failed to create .env file");
-
-    // Load the .env file
-    dotenv::from_path(&env_file_path).ok();
-
     // Create a minimal docker-compose.yml file
     fs::write(
         template_dir.join("docker-compose.yml"),
         "version: '3'\nservices:\n  agent:\n    build: .\n    ports:\n      - '3000:3000'\n    environment:\n      - PORT=3000\n      - OPENAI_API_KEY=${OPENAI_API_KEY}\n      - CDP_API_KEY_NAME=${CDP_API_KEY_NAME}\n      - CDP_API_KEY_PRIVATE_KEY=${CDP_API_KEY_PRIVATE_KEY}\n"
     ).expect("Failed to create docker-compose.yml");
 
-    // Create a simple package.json file
+    // Create dummy files needed for the tests
     fs::write(
-        template_dir.join("package.json"),
-        r#"{"name":"agent","version":"1.0.0","main":"index.js","dependencies":{}}"#,
+        template_dir.join("Dockerfile"),
+        "FROM node:18\nWORKDIR /app\nCOPY . .\nCMD [\"echo\", \"Mock container\"]\n",
     )
-    .expect("Failed to create package.json");
+    .expect("Failed to create Dockerfile");
 
-    // Set up mock service context using env vars where possible from .env
+    // Create an agent port map
+    let agent_ports = Arc::new(Mutex::new(HashMap::new()));
+
+    // Create a minimal service context
     let context = ServiceContext {
         config: GadgetConfiguration::default(),
         call_id: None,
-        agents_base_dir: Some(temp_dir.join("agents").to_string_lossy().to_string()),
+        agent_ports: Some(agent_ports),
+        agents_base_dir: Some(temp_dir.to_string_lossy().to_string()),
         tee_enabled: Some(false),
-        phala_tee_api_endpoint: Some(
-            env::var("PHALA_CLOUD_API_ENDPOINT")
-                .unwrap_or_else(|_| "https://cloud-api.phala.network/api/v1".to_string()),
-        ),
-        phala_tee_api_key: Some(
-            env::var("PHALA_CLOUD_API_KEY").unwrap_or_else(|_| "mock_api_key".to_string()),
-        ),
-        // Initialize the agent ports HashMap
-        agent_ports: Some(Arc::new(Mutex::new(HashMap::new()))),
+        phala_tee_api_key: Some("mock_api_key".to_string()),
+        phala_tee_api_endpoint: Some("https://example.com/api".to_string()),
     };
 
-    // Ensure agents directory exists
-    fs::create_dir_all(temp_dir.join("agents")).expect("Failed to create agents directory");
-
-    (context, temp_dir)
+    (context, temp_dir, missing_requirements)
 }
 
 #[test]
