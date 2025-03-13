@@ -272,6 +272,7 @@ async fn test_deploy_agent_interaction() {
 #[tokio::test]
 async fn test_deploy_agent_tee() {
     dotenv::dotenv().ok();
+    blueprint_sdk::logging::setup_log();
 
     let start_time = Instant::now();
 

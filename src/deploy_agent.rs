@@ -130,11 +130,7 @@ async fn deploy_to_tee(
     let endpoint = deployment["endpoint"].as_str().map(|s| s.to_string());
     let app_id = deployment["id"].as_str().map(|s| s.to_string());
 
-    logging::info!(
-        "TEE deployment completed. Endpoint: {:?}, App ID: {:?}",
-        endpoint,
-        app_id
-    );
+    logging::info!("TEE deployment completed. Deployment: {:#?}", deployment);
 
     // Prepare the deployment result
     let result = AgentDeploymentResult {
