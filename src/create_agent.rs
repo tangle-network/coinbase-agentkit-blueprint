@@ -115,7 +115,7 @@ fn setup_agent_directory(agent_id: &str, context: &ServiceContext) -> Result<Pat
     Ok(agent_dir)
 }
 
-/// Copies the starter template to the agent directory and installs dependencies
+/// Copies the starter template to the agent directory
 fn copy_starter_template(agent_dir: &Path) -> Result<(), String> {
     let template_dir = PathBuf::from("templates/starter");
     if !template_dir.exists() {
@@ -125,49 +125,8 @@ fn copy_starter_template(agent_dir: &Path) -> Result<(), String> {
     // Copy all files from the template directory to the agent directory
     copy_dir_contents(&template_dir, agent_dir)?;
 
-    // Run yarn install in the agent directory to set up node_modules
-    logging::info!(
-        "Installing dependencies in agent directory: {}",
-        agent_dir.display()
-    );
-    // Try with Yarn 4 syntax
-    match std::process::Command::new("yarn")
-        .args(&["install"])
-        .current_dir(agent_dir)
-        .status()
-    {
-        Ok(status) if status.success() => {
-            logging::info!("Successfully installed dependencies");
-            Ok(())
-        }
-        Ok(_) => {
-            logging::warn!("Failed to install dependencies with yarn, but continuing");
-
-            // As a fallback, try with npm
-            logging::info!("Trying npm install as fallback");
-            match std::process::Command::new("npm")
-                .args(&["install"])
-                .current_dir(agent_dir)
-                .status()
-            {
-                Ok(status) if status.success() => {
-                    logging::info!("Successfully installed dependencies with npm");
-                }
-                Ok(_) => {
-                    logging::warn!("Failed to install dependencies with npm, but continuing");
-                }
-                Err(e) => {
-                    logging::warn!("Error running npm install: {}", e);
-                }
-            }
-
-            Ok(()) // Continue even if install fails
-        }
-        Err(e) => {
-            logging::warn!("Error running yarn install: {}", e);
-            Ok(()) // Continue even if yarn install fails
-        }
-    }
+    logging::info!("Template files copied successfully to agent directory");
+    Ok(())
 }
 
 /// Recursively copy directory contents
