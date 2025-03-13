@@ -1,3 +1,4 @@
+use phala_tee_deploy_rs::PubkeyResponse;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
@@ -26,22 +27,10 @@ pub struct AgentConfig {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TeeConfig {
-    pub enabled: bool,
-    pub api_key: Option<String>,
-    pub api_endpoint: Option<String>,
-    pub app_id: Option<String>,
-    pub pubkey: Option<String>,
-    pub encrypted_env: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeploymentConfig {
     pub tee_enabled: bool,
     pub docker_compose_path: Option<PathBuf>,
-    pub public_key: Option<String>,
     pub http_port: Option<u16>,
-    pub tee_config: Option<TeeConfig>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -63,6 +52,8 @@ pub struct CreateAgentParams {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeployAgentParams {
     pub agent_id: String,
+    pub tee_pubkey: Option<String>,
+    pub tee_salt: Option<String>,
     pub api_key_config: Option<ApiKeyConfig>,
     pub encrypted_env: Option<String>,
 }
@@ -71,40 +62,13 @@ pub struct DeployAgentParams {
 pub struct AgentCreationResult {
     pub agent_id: String,
     pub files_created: Vec<String>,
-    pub tee_public_key: Option<String>,
-    pub tee_pubkey: Option<String>,
+    pub pubkey_response: Option<PubkeyResponse>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AgentDeploymentResult {
     pub agent_id: String,
-    pub deployment_id: String,
     pub endpoint: Option<String>,
     pub tee_pubkey: Option<String>,
-    pub tee_app_id: Option<String>,
-}
-
-// Query types (for non-state-changing operations)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AgentStatusQuery {
-    pub agent_id: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AgentStatus {
-    pub agent_id: String,
-    pub status: String,
-    pub uptime: Option<u64>,
-    pub mode: AgentMode,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AgentInteractionQuery {
-    pub agent_id: String,
-    pub message: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AgentInteractionResponse {
-    pub response: String,
+    pub tee_salt: Option<String>,
 }

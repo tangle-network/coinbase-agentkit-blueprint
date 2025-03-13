@@ -198,11 +198,11 @@ services:
             };
 
             // Verify the VM config structure
-            assert!(vm_config.is_object(), "VM config should be a JSON object");
-            assert_eq!(vm_config["name"], app_name, "Name should match app_name");
+            assert_eq!(vm_config.name, app_name, "Name should match app_name");
 
             // Test getting pubkey for the VM config
-            let pubkey_response = match deployer.get_pubkey_for_config(&vm_config).await {
+            let vm_config_json = serde_json::to_value(&vm_config).unwrap();
+            let pubkey_response = match deployer.get_pubkey_for_config(&vm_config_json).await {
                 Ok(response) => {
                     println!("Successfully retrieved pubkey");
                     response
@@ -217,15 +217,11 @@ services:
 
             // Verify pubkey response structure
             assert!(
-                pubkey_response.is_object(),
-                "Pubkey response should be a JSON object"
-            );
-            assert!(
-                pubkey_response.get("app_env_encrypt_pubkey").is_some(),
+                pubkey_response.app_env_encrypt_pubkey.len() > 0,
                 "Response should contain app_env_encrypt_pubkey"
             );
             assert!(
-                pubkey_response.get("app_id_salt").is_some(),
+                pubkey_response.app_id_salt.len() > 0,
                 "Response should contain app_id_salt"
             );
         }

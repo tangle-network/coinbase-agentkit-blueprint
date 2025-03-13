@@ -1,8 +1,9 @@
 use crate::docker;
-use crate::types::{AgentCreationResult, CreateAgentParams, TeeConfig};
+use crate::types::{AgentCreationResult, CreateAgentParams};
 use crate::{AgentPortConfig, ServiceContext};
 use blueprint_sdk::logging;
 use dockworker::ComposeConfig;
+use phala_tee_deploy_rs::PubkeyResponse;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -69,7 +70,7 @@ pub async fn handle_create_agent(
     )?;
 
     // Prepare TEE config if enabled
-    let tee_config = if params.deployment_config.tee_enabled {
+    let pubkey_response = if params.deployment_config.tee_enabled {
         get_tee_public_key(&agent_dir, context).await?
     } else {
         None
@@ -83,8 +84,7 @@ pub async fn handle_create_agent(
             agent_dir.join("package.json").to_string_lossy().to_string(),
             compose_path.to_string_lossy().to_string(),
         ],
-        tee_public_key: tee_config.as_ref().and_then(|c| c.pubkey.clone()),
-        tee_pubkey: tee_config.as_ref().and_then(|c| c.pubkey.clone()),
+        pubkey_response,
     };
 
     // Serialize the result
@@ -188,7 +188,7 @@ fn copy_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
 async fn get_tee_public_key(
     agent_dir: &Path,
     context: &ServiceContext,
-) -> Result<Option<TeeConfig>, String> {
+) -> Result<Option<PubkeyResponse>, String> {
     // Get API key directly from context
     let tee_api_key = context
         .phala_tee_api_key
@@ -219,7 +219,10 @@ async fn get_tee_public_key(
         .map_err(|e| format!("Failed to read docker-compose.yml: {}", e))?;
 
     // Create VM configuration using TeeDeployer's native method
-    logging::info!("Creating VM configuration from Docker Compose");
+    logging::info!(
+        "Creating VM configuration from Docker Compose {:#?}",
+        docker_compose
+    );
 
     // Parse docker-compose.yml to ComposeConfig using dockworker
     let compose_config: ComposeConfig = serde_yaml::from_str(&docker_compose)
@@ -241,32 +244,20 @@ async fn get_tee_public_key(
         .map_err(|e| format!("Failed to create VM configuration: {}", e))?;
 
     // Get the public key for this VM configuration
-    logging::info!("Requesting encryption public key...");
+    logging::info!(
+        "Requesting encryption public key with config {:#?}",
+        vm_config
+    );
+    let vm_config_json = serde_json::to_value(&vm_config).unwrap();
     let pubkey_response = deployer
-        .get_pubkey_for_config(&vm_config)
+        .get_pubkey_for_config(&vm_config_json)
         .await
         .map_err(|e| format!("Failed to get TEE public key: {}", e))?;
 
-    let pubkey = pubkey_response["app_env_encrypt_pubkey"]
-        .as_str()
-        .ok_or_else(|| "Missing public key in response".to_string())?
-        .to_string();
-
-    let salt = pubkey_response["app_id_salt"]
-        .as_str()
-        .ok_or_else(|| "Missing salt in response".to_string())?
-        .to_string();
-
+    logging::info!("Pubkey response: {:#?}", pubkey_response);
     logging::info!("Successfully obtained TEE public key");
 
-    Ok(Some(TeeConfig {
-        enabled: true,
-        api_key: Some(tee_api_key.clone()),
-        api_endpoint: Some(tee_api_endpoint.clone()),
-        app_id: Some(salt),
-        pubkey: Some(pubkey),
-        encrypted_env: None,
-    }))
+    Ok(Some(pubkey_response))
 }
 
 /// Creates a .env file with the necessary environment variables

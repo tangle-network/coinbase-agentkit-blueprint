@@ -32,9 +32,7 @@ async fn test_create_agent_no_tee() {
         deployment_config: DeploymentConfig {
             tee_enabled: false,
             docker_compose_path: None,
-            public_key: None,
             http_port: Some(3000),
-            tee_config: None,
         },
         api_key_config: ApiKeyConfig {
             openai_api_key: Some(env::var("OPENAI_API_KEY").unwrap()),
@@ -61,7 +59,7 @@ async fn test_create_agent_no_tee() {
     assert!(!result.agent_id.is_empty(), "Agent ID should not be empty");
     assert_eq!(result.files_created.len(), 3, "Should have created 3 files");
     assert!(
-        result.tee_public_key.is_none(),
+        result.pubkey_response.is_none(),
         "TEE public key should be None"
     );
 }
@@ -99,14 +97,12 @@ async fn test_create_agent_with_tee() {
         deployment_config: DeploymentConfig {
             tee_enabled: true,
             docker_compose_path: None,
-            public_key: None,
             http_port: Some(3000),
-            tee_config: None,
         },
         api_key_config: ApiKeyConfig {
-            openai_api_key: Some(env::var("OPENAI_API_KEY").unwrap()),
-            cdp_api_key_name: Some(env::var("CDP_API_KEY_NAME").unwrap()),
-            cdp_api_key_private_key: Some(env::var("CDP_API_KEY_PRIVATE_KEY").unwrap()),
+            openai_api_key: None,
+            cdp_api_key_name: None,
+            cdp_api_key_private_key: None,
         },
     };
 
@@ -128,11 +124,7 @@ async fn test_create_agent_with_tee() {
     assert!(!result.agent_id.is_empty(), "Agent ID should not be empty");
     assert_eq!(result.files_created.len(), 3, "Should have created 3 files");
     assert!(
-        result.tee_public_key.is_some(),
+        result.pubkey_response.is_some(),
         "TEE public key should be present"
-    );
-    assert!(
-        !result.tee_public_key.unwrap().is_empty(),
-        "TEE public key should not be empty"
     );
 }

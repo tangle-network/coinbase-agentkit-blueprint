@@ -1,8 +1,6 @@
+use crate::agent_endpoint::AgentEndpoint;
 use blueprint_sdk::logging;
 use std::process::Command;
-use tokio::process::Command as TokioCommand;
-
-use crate::{agent_endpoint::AgentEndpoint, docker};
 
 /// Check if a Docker container is running
 ///

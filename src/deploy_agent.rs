@@ -8,7 +8,6 @@ use serde_json;
 use std::fs;
 use std::path::Path;
 use tokio::process::Command as TokioCommand;
-use uuid::Uuid;
 
 /// Handles the deploy_agent job
 pub async fn handle_deploy_agent(
@@ -36,18 +35,15 @@ pub async fn handle_deploy_agent(
         ));
     }
 
-    // Generate a unique deployment ID
-    let deployment_id = Uuid::new_v4().to_string();
-
     // Check if this is a TEE deployment - use context directly
     let tee_enabled = context.tee_enabled.unwrap_or(false);
 
     if tee_enabled {
         // Deploy to TEE
-        deploy_to_tee(&agent_dir, &params, context, &deployment_id).await
+        deploy_to_tee(&agent_dir, &params, context).await
     } else {
         // Deploy locally with Docker
-        deploy_locally(&agent_dir, &params, &deployment_id, context).await
+        deploy_locally(&agent_dir, &params, context).await
     }
 }
 
@@ -56,7 +52,6 @@ async fn deploy_to_tee(
     agent_dir: &Path,
     params: &DeployAgentParams,
     context: &ServiceContext,
-    deployment_id: &str,
 ) -> Result<Vec<u8>, String> {
     // Get API key directly from context
     let tee_api_key = context
@@ -74,6 +69,11 @@ async fn deploy_to_tee(
     let docker_compose_path = agent_dir.join("docker-compose.yml");
     let docker_compose = fs::read_to_string(&docker_compose_path)
         .map_err(|e| format!("Failed to read docker-compose.yml: {}", e))?;
+
+    logging::info!(
+        "Deploying agent to TEE with Docker compose: {:#?}",
+        docker_compose
+    );
 
     // Initialize the TeeDeployer
     logging::info!("Initializing TeeDeployer for deployment");
@@ -93,7 +93,7 @@ async fn deploy_to_tee(
 
     // Create VM configuration using TeeDeployer's native method
     logging::info!("Creating VM configuration from Docker Compose");
-    let app_name = format!("coinbase-agent-{}", deployment_id);
+    let app_name = format!("coinbase-agent-{}", params.agent_id);
     let vm_config = deployer
         .create_vm_config_from_string(
             &docker_compose,
@@ -104,41 +104,43 @@ async fn deploy_to_tee(
         )
         .map_err(|e| format!("Failed to create VM configuration: {}", e))?;
 
+    logging::info!(
+        "Deploying agent to TEE with VM configuration: {:#?}",
+        vm_config
+    );
+
     // Get the public key for this VM configuration
     logging::info!("Requesting encryption public key...");
+    let vm_config_json = serde_json::to_value(&vm_config).unwrap();
     let pubkey_response = deployer
-        .get_pubkey_for_config(&vm_config)
+        .get_pubkey_for_config(&vm_config_json)
         .await
         .map_err(|e| format!("Failed to get TEE public key: {}", e))?;
 
-    let pubkey = pubkey_response["app_env_encrypt_pubkey"]
-        .as_str()
-        .ok_or_else(|| "Missing public key in response".to_string())?;
+    logging::info!(
+        "Deploying agent to TEE with pubkey response: {:#?}",
+        pubkey_response
+    );
 
-    let salt = pubkey_response["app_id_salt"]
-        .as_str()
-        .ok_or_else(|| "Missing salt in response".to_string())?;
+    let pubkey = pubkey_response.app_env_encrypt_pubkey;
+    let salt = pubkey_response.app_id_salt;
 
     // Deploy with the VM configuration and encrypted environment variables
     logging::info!("Deploying agent to TEE with encrypted environment variables");
+    let vm_config_json = serde_json::to_value(&vm_config).unwrap();
     let deployment = deployer
-        .deploy_with_encrypted_env(vm_config, encrypted_env.clone(), pubkey, salt)
+        .deploy_with_encrypted_env(vm_config_json, encrypted_env.clone(), &pubkey, &salt)
         .await
         .map_err(|e| format!("Failed to deploy to TEE: {}", e))?;
-
-    // Extract endpoint and app_id from deployment
-    let endpoint = deployment["endpoint"].as_str().map(|s| s.to_string());
-    let app_id = deployment["id"].as_str().map(|s| s.to_string());
 
     logging::info!("TEE deployment completed. Deployment: {:#?}", deployment);
 
     // Prepare the deployment result
     let result = AgentDeploymentResult {
         agent_id: params.agent_id.clone(),
-        deployment_id: deployment_id.to_string(),
-        endpoint,
-        tee_pubkey: None, // Already provided during creation
-        tee_app_id: app_id,
+        endpoint: None,
+        tee_pubkey: Some(pubkey),
+        tee_salt: Some(salt),
     };
 
     // Serialize the result
@@ -149,7 +151,6 @@ async fn deploy_to_tee(
 async fn deploy_locally(
     agent_dir: &Path,
     params: &DeployAgentParams,
-    deployment_id: &str,
     context: &ServiceContext,
 ) -> Result<Vec<u8>, String> {
     // Load .env file if it exists
@@ -230,10 +231,9 @@ async fn deploy_locally(
     // Prepare the deployment result
     let result = AgentDeploymentResult {
         agent_id: params.agent_id.clone(),
-        deployment_id: deployment_id.to_string(),
         endpoint: Some(endpoint),
         tee_pubkey: None,
-        tee_app_id: None,
+        tee_salt: None,
     };
 
     // Serialize the result

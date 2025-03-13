@@ -8,10 +8,8 @@ use crate::{
         CreateAgentParams, DeployAgentParams, DeploymentConfig,
     },
 };
-use chrono::Local;
 use phala_tee_deploy_rs::Encryptor;
 use rand;
-use serde_json::json;
 use std::{
     env,
     path::Path,
@@ -42,9 +40,7 @@ async fn test_deploy_agent_local() {
         deployment_config: DeploymentConfig {
             tee_enabled: false,
             docker_compose_path: None,
-            public_key: None,
             http_port: Some(3000),
-            tee_config: None,
         },
         api_key_config: ApiKeyConfig {
             openai_api_key: Some(env::var("OPENAI_API_KEY").unwrap()),
@@ -71,6 +67,8 @@ async fn test_deploy_agent_local() {
             cdp_api_key_private_key: Some(env::var("CDP_API_KEY_PRIVATE_KEY").unwrap()),
         }),
         encrypted_env: None,
+        tee_pubkey: None,
+        tee_salt: None,
     };
 
     let deploy_params_bytes =
@@ -136,9 +134,7 @@ async fn test_deploy_agent_interaction() {
         deployment_config: DeploymentConfig {
             tee_enabled: false,
             docker_compose_path: None,
-            public_key: None,
             http_port: Some(http_port),
-            tee_config: None,
         },
         api_key_config: ApiKeyConfig {
             openai_api_key: Some(openai_api_key.clone()),
@@ -185,6 +181,8 @@ async fn test_deploy_agent_interaction() {
             cdp_api_key_private_key: Some(cdp_api_key_private_key),
         }),
         encrypted_env: None,
+        tee_pubkey: None,
+        tee_salt: None,
     };
 
     let deploy_params_bytes =
@@ -341,9 +339,7 @@ async fn test_deploy_agent_tee() {
         deployment_config: DeploymentConfig {
             tee_enabled: true,
             docker_compose_path: None,
-            public_key: None,
             http_port: None,
-            tee_config: None,
         },
         api_key_config: ApiKeyConfig {
             openai_api_key: None,
@@ -378,19 +374,11 @@ async fn test_deploy_agent_tee() {
     ));
 
     // 2. Verify we received a TEE public key
-    let tee_pubkey = match &create_result.tee_pubkey {
-        Some(key) => {
-            log(&format!(
-                "Received TEE public key {} for environment encryption",
-                key
-            ));
-            key
-        }
-        None => {
-            log("No TEE public key received - cannot proceed with test");
-            return;
-        }
-    };
+    assert!(
+        create_result.pubkey_response.is_some(),
+        "TEE public key should be present"
+    );
+    let pubkey_response = create_result.pubkey_response.unwrap();
 
     // 3. In a real scenario, a user would encrypt their environment variables with this key
     // For this test, we'll create encrypted content using whatever mechanism the API expects
@@ -414,13 +402,16 @@ async fn test_deploy_agent_tee() {
     .collect();
 
     // Encrypt the vars
-    let encrypted_env = Encryptor::encrypt_env_vars(&env_vars, &tee_pubkey)
-        .expect("Failed to encrypt environment variables");
+    let encrypted_env =
+        Encryptor::encrypt_env_vars(&env_vars, &pubkey_response.app_env_encrypt_pubkey)
+            .expect("Failed to encrypt environment variables");
 
     // 4. Deploy agent with encrypted environment variables
     log("Deploying agent to TEE with encrypted environment");
     let deploy_params = DeployAgentParams {
         agent_id: create_result.agent_id.clone(),
+        tee_pubkey: Some(pubkey_response.app_env_encrypt_pubkey.clone()),
+        tee_salt: Some(pubkey_response.app_id_salt.clone()),
         api_key_config: None, // Not needed for TEE as they're provided in encrypted env
         encrypted_env: Some(encrypted_env),
     };
@@ -451,47 +442,28 @@ async fn test_deploy_agent_tee() {
         deploy_result
     ));
 
-    // Verify we have an endpoint and app_id
-    assert!(
-        deploy_result.endpoint.is_some(),
-        "No endpoint returned from TEE deployment"
-    );
-    assert!(
-        deploy_result.tee_app_id.is_some(),
-        "No TEE app_id returned from deployment"
-    );
+    let endpoint = format!("http://localhost:3000");
+    let agent = AgentEndpoint::new(endpoint.clone());
 
-    // Optional: Test interaction with the deployed agent
-    if let Some(endpoint) = &deploy_result.endpoint {
-        log(&format!(
-            "Testing interaction with TEE agent at {}",
-            endpoint
-        ));
+    // Wait for agent to become healthy - may take longer in TEE environment
+    match agent
+        .wait_for_health(30, Duration::from_secs(1), Duration::from_secs(5))
+        .await
+    {
+        Ok(_) => {
+            log("TEE agent is healthy, sending test message");
+            let message = "What is your purpose? Keep it brief.";
 
-        let agent = AgentEndpoint::new(endpoint.clone());
-
-        // Wait for agent to become healthy - may take longer in TEE environment
-        match agent
-            .wait_for_health(30, Duration::from_secs(1), Duration::from_secs(5))
-            .await
-        {
-            Ok(_) => {
-                log("TEE agent is healthy, sending test message");
-                let message = "What is your purpose? Keep it brief.";
-
-                match agent.interact(message, Duration::from_secs(15)).await {
-                    Ok(response) => {
-                        if let Some(response_text) =
-                            response.get("response").and_then(|r| r.as_str())
-                        {
-                            log(&format!("TEE agent response: {}", response_text));
-                        }
+            match agent.interact(message, Duration::from_secs(15)).await {
+                Ok(response) => {
+                    if let Some(response_text) = response.get("response").and_then(|r| r.as_str()) {
+                        log(&format!("TEE agent response: {}", response_text));
                     }
-                    Err(e) => log(&format!("TEE agent interaction failed: {}", e)),
                 }
+                Err(e) => log(&format!("TEE agent interaction failed: {}", e)),
             }
-            Err(e) => log(&format!("TEE agent health check failed: {}", e)),
         }
+        Err(e) => log(&format!("TEE agent health check failed: {}", e)),
     }
 
     log(&format!(
