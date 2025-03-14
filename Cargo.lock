@@ -1847,7 +1847,7 @@ dependencies = [
  "percent-encoding",
  "pin-project-lite",
  "tracing",
- "uuid 1.14.0",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -3155,7 +3155,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "url",
- "uuid 1.14.0",
+ "uuid 1.16.0",
  "warp",
 ]
 
@@ -4167,7 +4167,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18e4fdb82bd54a12e42fb58a800dcae6b9e13982238ce2296dc3570b92148e1f"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.98",
 ]
 
 [[package]]
@@ -6449,7 +6449,7 @@ dependencies = [
  "gadget-stores",
  "thiserror 2.0.11",
  "tokio",
- "uuid 1.14.0",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -9407,7 +9407,7 @@ dependencies = [
  "smallvec",
  "tagptr",
  "thiserror 1.0.69",
- "uuid 1.14.0",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -12275,7 +12275,7 @@ dependencies = [
  "serde_yaml",
  "thiserror 1.0.69",
  "tokio",
- "uuid 1.14.0",
+ "uuid 1.16.0",
  "x25519-dalek",
 ]
 
@@ -17278,7 +17278,7 @@ dependencies = [
  "num-traits",
  "tokio",
  "tracing",
- "uuid 1.14.0",
+ "uuid 1.16.0",
 ]
 
 [[package]]
@@ -17899,9 +17899,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.14.0"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93d59ca99a559661b96bf898d8fce28ed87935fd2bea9f05983c1464dd6c71b1"
+checksum = "458f7a779bf54acc9f347480ac654f68407d3aab21269a6e3c9f922acd9e2da9"
 dependencies = [
  "getrandom 0.3.1",
  "serde",
