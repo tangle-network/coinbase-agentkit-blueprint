@@ -59,13 +59,13 @@ pub async fn handle_create_agent(
     let compose_path = docker::write_docker_compose_file(&agent_dir)?;
 
     // Prepare TEE config if enabled
-    let (tee_pubkey, tee_app_id) = if params.deployment_config.tee_enabled {
+    let (tee_pubkey, tee_app_id, tee_salt) = if params.deployment_config.tee_enabled {
         match get_tee_public_key(&agent_dir, context).await? {
-            Some((pubkey, app_id)) => (Some(pubkey), Some(app_id)),
-            None => (None, None),
+            Some((pubkey, app_id, salt)) => (Some(pubkey), Some(app_id), Some(salt)),
+            None => (None, None, None),
         }
     } else {
-        (None, None)
+        (None, None, None)
     };
 
     // Return the result
@@ -78,6 +78,7 @@ pub async fn handle_create_agent(
         ],
         tee_pubkey,
         tee_app_id,
+        tee_salt,
     };
 
     // Serialize the result
@@ -181,7 +182,7 @@ fn copy_dir_contents(src: &Path, dst: &Path) -> Result<(), String> {
 async fn get_tee_public_key(
     agent_dir: &Path,
     context: &ServiceContext,
-) -> Result<Option<(String, String)>, String> {
+) -> Result<Option<(String, String, String)>, String> {
     // Get API key directly from context
     let tee_api_key = context
         .phala_tee_api_key
@@ -245,12 +246,9 @@ async fn get_tee_public_key(
     let pubkey = pubkey_response.clone().app_env_encrypt_pubkey;
     let salt = pubkey_response.clone().app_id_salt;
 
-    logging::info!(
-        "Successfully obtained TEE public key {:#?}",
-        pubkey_response
-    );
+    logging::info!("Successfully obtained TEE public key: {}", pubkey);
 
-    Ok(Some((pubkey, salt)))
+    Ok(Some((pubkey, pubkey_response.app_id, salt)))
 }
 
 /// Creates a .env file with the necessary environment variables
