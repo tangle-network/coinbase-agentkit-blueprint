@@ -243,8 +243,8 @@ async fn get_tee_public_key(
         .map_err(|e| format!("Failed to get TEE public key: {}", e))?;
 
     // Extract the pubkey and salt from the response
-    let pubkey = pubkey_response.app_env_encrypt_pubkey;
-    let salt = pubkey_response.app_id_salt;
+    let pubkey = pubkey_response.clone().app_env_encrypt_pubkey;
+    let salt = pubkey_response.clone().app_id_salt;
 
     logging::info!("Successfully obtained TEE public key: {}", pubkey);
 
