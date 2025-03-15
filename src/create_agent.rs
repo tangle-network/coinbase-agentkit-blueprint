@@ -245,7 +245,10 @@ async fn get_tee_public_key(
     let pubkey = pubkey_response.app_env_encrypt_pubkey;
     let salt = pubkey_response.app_id_salt;
 
-    logging::info!("Successfully obtained TEE public key");
+    logging::info!(
+        "Successfully obtained TEE public key {:#?}",
+        pubkey_response
+    );
 
     Ok(Some((pubkey, salt)))
 }
