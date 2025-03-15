@@ -110,16 +110,9 @@ async fn deploy_to_tee(
         vm_config_json
     );
 
-    // Get the public key for this VM configuration
-    logging::info!("Requesting encryption public key...");
-    let pubkey_response = deployer
-        .get_pubkey_for_config(&vm_config_json)
-        .await
-        .map_err(|e| format!("Failed to get TEE public key: {}", e))?;
-
-    let pubkey = pubkey_response.app_env_encrypt_pubkey;
-    let salt = pubkey_response.app_id_salt;
-    let app_id = pubkey_response.app_id;
+    let pubkey = params.tee_pubkey.as_ref().unwrap();
+    let salt = params.tee_salt.as_ref().unwrap();
+    let app_id = params.tee_app_id.as_ref().unwrap();
 
     // Deploy with the VM configuration and encrypted environment variables
     logging::info!("Deploying agent to TEE with encrypted environment variables");
@@ -133,8 +126,8 @@ async fn deploy_to_tee(
     // Prepare the deployment result
     let result = AgentDeploymentResult {
         agent_id: params.agent_id.clone(),
-        tee_pubkey: Some(pubkey),
-        tee_app_id: Some(app_id),
+        tee_pubkey: Some(pubkey.clone()),
+        tee_app_id: Some(app_id.clone()),
     };
 
     // Serialize the result

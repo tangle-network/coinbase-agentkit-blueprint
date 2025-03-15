@@ -67,6 +67,9 @@ async fn test_deploy_agent_local() {
             cdp_api_key_private_key: Some(env::var("CDP_API_KEY_PRIVATE_KEY").unwrap()),
         }),
         encrypted_env: None,
+        tee_pubkey: None,
+        tee_app_id: None,
+        tee_salt: None,
     };
 
     let deploy_params_bytes =
@@ -179,6 +182,9 @@ async fn test_deploy_agent_interaction() {
             cdp_api_key_private_key: Some(cdp_api_key_private_key),
         }),
         encrypted_env: None,
+        tee_pubkey: None,
+        tee_app_id: None,
+        tee_salt: None,
     };
 
     let deploy_params_bytes =
@@ -411,6 +417,9 @@ async fn test_deploy_agent_tee() {
         agent_id: create_result.agent_id.clone(),
         api_key_config: None, // Not needed for TEE as they're provided in encrypted env
         encrypted_env: Some(encrypted_env),
+        tee_pubkey: Some(tee_pubkey.clone()),
+        tee_app_id: Some(create_result.tee_app_id.unwrap()),
+        tee_salt: Some(create_result.tee_salt.unwrap()),
     };
 
     let deploy_params_bytes =

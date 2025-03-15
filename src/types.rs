@@ -53,6 +53,9 @@ pub struct DeployAgentParams {
     pub agent_id: String,
     pub api_key_config: Option<ApiKeyConfig>,
     pub encrypted_env: Option<String>,
+    pub tee_pubkey: Option<String>,
+    pub tee_app_id: Option<String>,
+    pub tee_salt: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -61,6 +64,7 @@ pub struct AgentCreationResult {
     pub files_created: Vec<String>,
     pub tee_pubkey: Option<String>,
     pub tee_app_id: Option<String>,
+    pub tee_salt: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
