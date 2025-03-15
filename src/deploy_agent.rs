@@ -118,13 +118,12 @@ async fn deploy_to_tee(
         .map_err(|e| format!("Failed to get TEE public key: {}", e))?;
 
     let pubkey = pubkey_response.app_env_encrypt_pubkey;
-    let salt = pubkey_response.app_id_salt;
     let app_id = pubkey_response.app_id;
 
     // Deploy with the VM configuration and encrypted environment variables
     logging::info!("Deploying agent to TEE with encrypted environment variables");
     let deployment = deployer
-        .deploy_with_encrypted_env(vm_config_json, encrypted_env.clone(), &pubkey, &salt)
+        .deploy_with_encrypted_env(vm_config_json, encrypted_env.clone(), &pubkey)
         .await
         .map_err(|e| format!("Failed to deploy to TEE: {}", e))?;
 
