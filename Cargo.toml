@@ -15,7 +15,6 @@ rust-version = "1.81"
 [dependencies]
 blueprint-sdk = { git = "https://github.com/tangle-network/gadget", features = ["tangle", "macros"] }
 phala-tee-deploy-rs = { git = "https://github.com/tangle-network/phala-tee-deploy-rs" }
-dockworker = { git = "https://github.com/tangle-network/dockworker" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.25", features = ["rt", "macros", "process", "fs", "time", "net"] }

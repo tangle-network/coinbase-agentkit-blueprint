@@ -43,7 +43,6 @@ MODEL=gpt-4o-mini
 CONTAINER_NAME=agent-test-container
 MOCK_AGENT=true
 NODE_ENV=test
-RUN_TESTS=false
 EOF
 
 # Start the containers

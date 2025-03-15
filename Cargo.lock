@@ -3142,7 +3142,6 @@ dependencies = [
  "blueprint-sdk",
  "chrono",
  "color-eyre",
- "dockworker",
  "dotenv",
  "phala-tee-deploy-rs",
  "rand 0.8.5",
@@ -4426,21 +4425,6 @@ dependencies = [
  "base64 0.21.7",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "dockworker"
-version = "0.1.0"
-source = "git+https://github.com/tangle-network/dockworker#b225050350e479f71294db3666060d34874eab67"
-dependencies = [
- "cfg-if",
- "log",
- "regex",
- "serde",
- "serde_json",
- "serde_yaml",
- "shell-words",
- "thiserror 2.0.11",
 ]
 
 [[package]]
@@ -12262,10 +12246,9 @@ dependencies = [
 [[package]]
 name = "phala-tee-deploy-rs"
 version = "0.1.0"
-source = "git+https://github.com/tangle-network/phala-tee-deploy-rs#49ad08043356685b6593fd5ed393b201cc0a4fae"
+source = "git+https://github.com/tangle-network/phala-tee-deploy-rs#b6a89809ceda398a559051ed213323763f9b4e18"
 dependencies = [
  "aes-gcm",
- "dockworker",
  "dotenv",
  "hex",
  "rand 0.8.5",

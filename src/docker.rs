@@ -1,137 +1,11 @@
-use dockworker::config::compose::{BuildConfig, ComposeConfig, Service};
-use dockworker::config::EnvironmentVars;
 use phala_tee_deploy_rs::{TeeDeployer, TeeDeployerBuilder};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Creates a Docker Compose configuration for a Coinbase Agent
+/// Creates a Docker Compose file in the agent directory by copying the template
 ///
-/// This function generates a standardized Docker Compose configuration
-/// that can be used for both local and TEE deployments.
-///
-/// # Arguments
-///
-/// * `agent_id` - Unique identifier for the agent
-/// * `http_port` - The HTTP port to expose (default: 3000)
-/// * `websocket_port` - The WebSocket port to expose (default: 3001)
-/// * `env_vars` - Additional environment variables to include
-///
-/// # Returns
-///
-/// A tuple containing:
-/// * The ComposeConfig object
-/// * YAML string representation of the configuration
-pub fn create_agent_compose_config(
-    agent_id: &str,
-    http_port: Option<u16>,
-    websocket_port: Option<u16>,
-    env_vars: HashMap<String, String>,
-) -> (ComposeConfig, String) {
-    let http_port = http_port.unwrap_or(3000);
-    let websocket_port = websocket_port.unwrap_or(3001);
-
-    // Create a Docker Compose configuration for the agent
-    let mut compose_config = ComposeConfig::default();
-    // Version is already set to "3" by default in ComposeConfig
-
-    // Create the agent service
-    let mut agent_service = Service::default();
-
-    // Use build context instead of image
-    agent_service.build = Some(BuildConfig {
-        context: ".".to_string(),
-        dockerfile: None, // Use default Dockerfile in the context directory
-    });
-
-    // Map ports for HTTP and WebSocket
-    agent_service.ports = Some(vec![
-        format!("{}:{}", http_port, http_port),
-        format!("{}:{}", websocket_port, websocket_port),
-    ]);
-
-    // Set up environment variables
-    let mut service_env = HashMap::new();
-    service_env.insert("PORT".to_string(), http_port.to_string());
-    service_env.insert("WEBSOCKET_PORT".to_string(), websocket_port.to_string());
-    service_env.insert(
-        "CONTAINER_NAME".to_string(),
-        format!("coinbase-agent-{}", agent_id),
-    );
-    service_env.insert("NODE_ENV".to_string(), "production".to_string());
-    service_env.insert("AGENT_MODE".to_string(), "http".to_string());
-    service_env.insert("MODEL".to_string(), "gpt-4o-mini".to_string());
-    service_env.insert("LOG_LEVEL".to_string(), "info".to_string());
-
-    // Add additional environment variables
-    for (key, value) in env_vars {
-        service_env.insert(key, value);
-    }
-
-    // Set the environment variables in the service
-    agent_service.environment = Some(EnvironmentVars::from(service_env));
-
-    // Use restart policy for reliability
-    agent_service.restart = Some("unless-stopped".to_string());
-
-    // Add the agent service to the config
-    compose_config
-        .services
-        .insert("agent".to_string(), agent_service);
-
-    // Generate YAML from the config - we can't use serde_yaml directly since it's not a dependency
-    // So we'll construct a basic YAML string manually
-    let yaml = create_yaml_from_config(&compose_config, agent_id, http_port, websocket_port);
-
-    (compose_config, yaml)
-}
-
-/// Helper function to manually create a YAML string from the compose config
-fn create_yaml_from_config(
-    _config: &ComposeConfig,
-    agent_id: &str,
-    http_port: u16,
-    websocket_port: u16,
-) -> String {
-    // Create a basic YAML string manually since we can't use serde_yaml
-    format!(
-        r#"version: '3'
-services:
-  agent:
-    container_name: coinbase-agent-{}
-    build:
-      context: .
-    ports:
-      - "{}:{}"
-      - "{}:{}"
-    environment:
-      - PORT={}
-      - WEBSOCKET_PORT={}
-      - CONTAINER_NAME=coinbase-agent-{}
-      - NODE_ENV=production
-      - AGENT_MODE=http
-      - MODEL=gpt-4o-mini
-      - LOG_LEVEL=debug
-      - OPENAI_API_KEY=${{OPENAI_API_KEY}}
-      - CDP_API_KEY_NAME=${{CDP_API_KEY_NAME}}
-      - CDP_API_KEY_PRIVATE_KEY=${{CDP_API_KEY_PRIVATE_KEY}}
-    restart: unless-stopped
-"#,
-        agent_id,
-        http_port,
-        http_port,
-        websocket_port,
-        websocket_port,
-        http_port,
-        websocket_port,
-        agent_id
-    )
-}
-
-/// Creates a Docker Compose file in the agent directory
-///
-/// This function generates and writes a Docker Compose file that matches
-/// the configuration used for TEE deployment.
+/// This function copies the template docker-compose.yml and normalizes it to ensure
+/// consistent field ordering for TEE deployment.
 ///
 /// # Arguments
 ///
@@ -139,27 +13,66 @@ services:
 /// * `agent_id` - Unique identifier for the agent
 /// * `http_port` - The HTTP port to expose (default: 3000)
 /// * `websocket_port` - The WebSocket port to expose (default: 3001)
-/// * `env_vars` - Additional environment variables to include
+/// * `env_vars` - Additional environment variables to include (currently unused)
 ///
 /// # Returns
 ///
 /// The path to the created Docker Compose file
-pub fn write_docker_compose_file(
-    agent_dir: &Path,
-    agent_id: &str,
-    http_port: Option<u16>,
-    websocket_port: Option<u16>,
-    env_vars: HashMap<String, String>,
-) -> Result<PathBuf, String> {
-    // Create the Docker Compose config
-    let (_, yaml) = create_agent_compose_config(agent_id, http_port, websocket_port, env_vars);
+pub fn write_docker_compose_file(agent_dir: &Path) -> Result<PathBuf, String> {
+    // Define the source template path
+    let template_path = Path::new("templates/starter/docker-compose.yml");
+    if !template_path.exists() {
+        return Err("Docker Compose template not found".to_string());
+    }
+
+    // Read the template
+    let docker_compose = fs::read_to_string(template_path)
+        .map_err(|e| format!("Failed to read Docker Compose template: {}", e))?;
+
+    // Normalize the Docker Compose file to ensure consistent ordering
+    let normalized_compose = normalize_docker_compose(&docker_compose)?;
 
     // Write the Docker Compose file
     let compose_path = agent_dir.join("docker-compose.yml");
-    fs::write(&compose_path, yaml)
+    fs::write(&compose_path, normalized_compose)
         .map_err(|e| format!("Failed to write docker-compose.yml: {}", e))?;
 
     Ok(compose_path)
+}
+
+/// Normalizes a Docker Compose file by parsing it and reserializing it in a consistent format
+/// This ensures the same field ordering between different processes
+///
+/// # Arguments
+///
+/// * `docker_compose` - The docker-compose content as a string
+///
+/// # Returns
+///
+/// A Result containing the normalized Docker Compose content
+pub fn normalize_docker_compose(docker_compose: &str) -> Result<String, String> {
+    // Parse the Docker Compose content into a structured Value
+    let mut yaml: serde_yaml::Value = serde_yaml::from_str(docker_compose)
+        .map_err(|e| format!("Failed to parse Docker compose as YAML: {}", e))?;
+
+    // Sort environment variables if they exist to ensure consistent ordering
+    if let Some(services) = yaml.get_mut("services") {
+        if let Some(agent) = services.get_mut("agent") {
+            if let Some(env) = agent.get_mut("environment") {
+                if let Some(env_array) = env.as_sequence_mut() {
+                    // Sort environment variables by key
+                    env_array.sort_by(|a, b| {
+                        let a_str = a.as_str().unwrap_or("");
+                        let b_str = b.as_str().unwrap_or("");
+                        a_str.cmp(b_str)
+                    });
+                }
+            }
+        }
+    }
+
+    // Convert back to a string in a consistent manner
+    serde_yaml::to_string(&yaml).map_err(|e| format!("Failed to serialize normalized YAML: {}", e))
 }
 
 /// Initializes a TeeDeployer with the provided API credentials

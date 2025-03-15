@@ -1,4 +1,3 @@
-use phala_tee_deploy_rs::PubkeyResponse;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
@@ -52,8 +51,6 @@ pub struct CreateAgentParams {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeployAgentParams {
     pub agent_id: String,
-    pub tee_pubkey: Option<String>,
-    pub tee_salt: Option<String>,
     pub api_key_config: Option<ApiKeyConfig>,
     pub encrypted_env: Option<String>,
 }
@@ -62,13 +59,13 @@ pub struct DeployAgentParams {
 pub struct AgentCreationResult {
     pub agent_id: String,
     pub files_created: Vec<String>,
-    pub pubkey_response: Option<PubkeyResponse>,
+    pub tee_pubkey: Option<String>,
+    pub tee_app_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AgentDeploymentResult {
     pub agent_id: String,
-    pub endpoint: Option<String>,
     pub tee_pubkey: Option<String>,
-    pub tee_salt: Option<String>,
+    pub tee_app_id: Option<String>,
 }

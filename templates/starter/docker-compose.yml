@@ -5,9 +5,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        # Enable or disable tests during build
-        RUN_TESTS: ${RUN_TESTS:-false}
     container_name: ${CONTAINER_NAME:-coinbase-agent}
     ports:
       - "${PORT:-3000}:3000"

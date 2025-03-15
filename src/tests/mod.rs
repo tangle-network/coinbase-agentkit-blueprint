@@ -181,7 +181,7 @@ services:
 
             // Create VM configuration using the deployer with the auto-selected TEEPod
             let app_name = "test-coinbase-agent";
-            let vm_config = match deployer.create_vm_config_from_string(
+            let vm_config = match deployer.create_vm_config(
                 docker_compose,
                 app_name,
                 Some(2),

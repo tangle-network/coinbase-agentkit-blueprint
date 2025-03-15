@@ -67,8 +67,6 @@ async fn test_deploy_agent_local() {
             cdp_api_key_private_key: Some(env::var("CDP_API_KEY_PRIVATE_KEY").unwrap()),
         }),
         encrypted_env: None,
-        tee_pubkey: None,
-        tee_salt: None,
     };
 
     let deploy_params_bytes =
@@ -181,8 +179,6 @@ async fn test_deploy_agent_interaction() {
             cdp_api_key_private_key: Some(cdp_api_key_private_key),
         }),
         encrypted_env: None,
-        tee_pubkey: None,
-        tee_salt: None,
     };
 
     let deploy_params_bytes =
@@ -206,7 +202,8 @@ async fn test_deploy_agent_interaction() {
                 .expect("Failed to deserialize deployment result");
             log(&format!("Deployed agent: {:?}", result));
             result
-                .endpoint
+                .tee_app_id
+                .map(|id| format!("https://{}:{}", id, http_port))
                 .unwrap_or_else(|| format!("http://localhost:{}", http_port))
         }
         Err(e) => {
@@ -375,10 +372,10 @@ async fn test_deploy_agent_tee() {
 
     // 2. Verify we received a TEE public key
     assert!(
-        create_result.pubkey_response.is_some(),
+        create_result.tee_pubkey.is_some(),
         "TEE public key should be present"
     );
-    let pubkey_response = create_result.pubkey_response.unwrap();
+    let tee_pubkey = create_result.tee_pubkey.unwrap();
 
     // 3. In a real scenario, a user would encrypt their environment variables with this key
     // For this test, we'll create encrypted content using whatever mechanism the API expects
@@ -386,13 +383,16 @@ async fn test_deploy_agent_tee() {
 
     // Get env_encrypt_tool from the service (if available) to properly encrypt the variables
     // This would typically involve using the TEE service's encryption API
+    let container_name = format!("coinbase-agent-{}", create_result.agent_id);
     let env_vars: Vec<(String, String)> = vec![
         ("PORT", "3000"),
         ("WEBSOCKET_PORT", "3001"),
-        ("NODE_ENV", "production"),
+        ("CONTAINER_NAME", &container_name),
+        ("NODE_ENV", "development"),
         ("AGENT_MODE", "http"),
         ("MODEL", "gpt-4o-mini"),
-        ("LOG_LEVEL", "info"),
+        ("LOG_LEVEL", "debug"),
+        ("WEBSOCKET_URL", "ws://localhost:3001"),
         ("OPENAI_API_KEY", &openai_api_key),
         ("CDP_API_KEY_NAME", &cdp_api_key_name),
         ("CDP_API_KEY_PRIVATE_KEY", &cdp_api_key_private_key),
@@ -402,16 +402,13 @@ async fn test_deploy_agent_tee() {
     .collect();
 
     // Encrypt the vars
-    let encrypted_env =
-        Encryptor::encrypt_env_vars(&env_vars, &pubkey_response.app_env_encrypt_pubkey)
-            .expect("Failed to encrypt environment variables");
+    let encrypted_env = Encryptor::encrypt_env_vars(&env_vars, &tee_pubkey)
+        .expect("Failed to encrypt environment variables");
 
     // 4. Deploy agent with encrypted environment variables
     log("Deploying agent to TEE with encrypted environment");
     let deploy_params = DeployAgentParams {
         agent_id: create_result.agent_id.clone(),
-        tee_pubkey: Some(pubkey_response.app_env_encrypt_pubkey.clone()),
-        tee_salt: Some(pubkey_response.app_id_salt.clone()),
         api_key_config: None, // Not needed for TEE as they're provided in encrypted env
         encrypted_env: Some(encrypted_env),
     };

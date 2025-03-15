@@ -58,10 +58,7 @@ async fn test_create_agent_no_tee() {
     // Assertions
     assert!(!result.agent_id.is_empty(), "Agent ID should not be empty");
     assert_eq!(result.files_created.len(), 3, "Should have created 3 files");
-    assert!(
-        result.pubkey_response.is_none(),
-        "TEE public key should be None"
-    );
+    assert!(result.tee_pubkey.is_none(), "TEE public key should be None");
 }
 
 /// Test agent creation with TEE enabled
@@ -124,7 +121,7 @@ async fn test_create_agent_with_tee() {
     assert!(!result.agent_id.is_empty(), "Agent ID should not be empty");
     assert_eq!(result.files_created.len(), 3, "Should have created 3 files");
     assert!(
-        result.pubkey_response.is_some(),
+        result.tee_pubkey.is_some(),
         "TEE public key should be present"
     );
 }

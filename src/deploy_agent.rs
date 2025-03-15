@@ -4,7 +4,6 @@ use crate::types::{AgentDeploymentResult, DeployAgentParams};
 use crate::ServiceContext;
 use blueprint_sdk::logging;
 use dotenv::dotenv;
-use serde_json;
 use std::fs;
 use std::path::Path;
 use tokio::process::Command as TokioCommand;
@@ -70,10 +69,11 @@ async fn deploy_to_tee(
     let docker_compose = fs::read_to_string(&docker_compose_path)
         .map_err(|e| format!("Failed to read docker-compose.yml: {}", e))?;
 
-    logging::info!(
-        "Deploying agent to TEE with Docker compose: {:#?}",
-        docker_compose
-    );
+    // Normalize the Docker Compose file to ensure consistent ordering
+    let docker_compose = docker::normalize_docker_compose(&docker_compose)?;
+
+    // Log for debugging
+    logging::info!("Deploying agent to TEE with normalized Docker compose YAML");
 
     // Initialize the TeeDeployer
     logging::info!("Initializing TeeDeployer for deployment");
@@ -91,43 +91,38 @@ async fn deploy_to_tee(
         "No encrypted environment variables provided for TEE deployment".to_string()
     })?;
 
-    // Create VM configuration using TeeDeployer's native method
+    // Create VM configuration using our consistent helper function
     logging::info!("Creating VM configuration from Docker Compose");
     let app_name = format!("coinbase-agent-{}", params.agent_id);
     let vm_config = deployer
-        .create_vm_config_from_string(
+        .create_vm_config(
             &docker_compose,
             &app_name,
-            Some(2),    // vcpu
-            Some(2048), // memory in MB
-            Some(10),   // disk size in GB
+            Some(2_u64),    // vcpu
+            Some(2048_u64), // memory in MB
+            Some(10_u64),   // disk size in GB
         )
-        .map_err(|e| format!("Failed to create VM configuration: {}", e))?;
-
+        .map_err(|e| format!("Failed to deploy with VM configuration: {}", e))?;
+    let vm_config_json = serde_json::to_value(vm_config)
+        .map_err(|e| format!("Failed to serialize VM configuration: {}", e))?;
     logging::info!(
         "Deploying agent to TEE with VM configuration: {:#?}",
-        vm_config
+        vm_config_json
     );
 
     // Get the public key for this VM configuration
     logging::info!("Requesting encryption public key...");
-    let vm_config_json = serde_json::to_value(&vm_config).unwrap();
     let pubkey_response = deployer
         .get_pubkey_for_config(&vm_config_json)
         .await
         .map_err(|e| format!("Failed to get TEE public key: {}", e))?;
 
-    logging::info!(
-        "Deploying agent to TEE with pubkey response: {:#?}",
-        pubkey_response
-    );
-
     let pubkey = pubkey_response.app_env_encrypt_pubkey;
     let salt = pubkey_response.app_id_salt;
+    let app_id = pubkey_response.app_id;
 
     // Deploy with the VM configuration and encrypted environment variables
     logging::info!("Deploying agent to TEE with encrypted environment variables");
-    let vm_config_json = serde_json::to_value(&vm_config).unwrap();
     let deployment = deployer
         .deploy_with_encrypted_env(vm_config_json, encrypted_env.clone(), &pubkey, &salt)
         .await
@@ -138,9 +133,8 @@ async fn deploy_to_tee(
     // Prepare the deployment result
     let result = AgentDeploymentResult {
         agent_id: params.agent_id.clone(),
-        endpoint: None,
         tee_pubkey: Some(pubkey),
-        tee_salt: Some(salt),
+        tee_app_id: Some(app_id),
     };
 
     // Serialize the result
@@ -231,9 +225,8 @@ async fn deploy_locally(
     // Prepare the deployment result
     let result = AgentDeploymentResult {
         agent_id: params.agent_id.clone(),
-        endpoint: Some(endpoint),
         tee_pubkey: None,
-        tee_salt: None,
+        tee_app_id: None,
     };
 
     // Serialize the result
@@ -313,8 +306,7 @@ fn create_env_content(
          WEBSOCKET_URL=ws://localhost:{websocket_port}\n\
          OPENAI_API_KEY={openai_api_key}\n\
          CDP_API_KEY_NAME={cdp_api_key_name}\n\
-         CDP_API_KEY_PRIVATE_KEY={cdp_api_key_private_key}\n\
-         RUN_TESTS=false\n"
+         CDP_API_KEY_PRIVATE_KEY={cdp_api_key_private_key}\n"
     );
 
     Ok(env_content)
