@@ -11,6 +11,59 @@ The Coinbase Agent Kit Blueprint allows you to:
 - **Manage API keys** securely for each agent
 - **Interact** with deployed agents via CLI, HTTP API, or autonomous mode
 
+## 🐳 Using Pre-built Docker Images
+
+Pre-built Docker images are **required** for TEE deployment, as the TEE infrastructure doesn't support building images from source during the deployment process:
+
+1. **Build and push the image** to your registry:
+
+   ```bash
+   # Set your registry
+   export REGISTRY=ghcr.io/your-username
+
+   # Run the build script
+   ./templates/starter/scripts/build_and_push.sh
+   ```
+
+2. **Use the pre-built image** in your deployment:
+
+   ```bash
+   # Set the image to use
+   export DOCKER_IMAGE=ghcr.io/your-username/coinbase-agent:latest
+
+   # Deploy your agent (the image will be used instead of building)
+   # Your regular deployment command here
+   ```
+
+Using pre-built images also helps avoid disk space issues during local deployment and speeds up the deployment process overall.
+
+The docker-compose.yml template is configured to use the `DOCKER_IMAGE` environment variable if set, otherwise it will fall back to building the image locally (which only works for non-TEE deployments).
+
+### Managing Disk Space for Docker Builds
+
+If you encounter "no space left on device" errors when building the Docker image:
+
+1. **Clear Docker resources:**
+
+   ```bash
+   # Remove all unused Docker resources (images, containers, volumes, etc.)
+   docker system prune -a --volumes
+   ```
+
+2. **Increase Docker's disk space allocation:**
+
+   - **Docker Desktop (Mac/Windows)**: Go to Settings → Resources → Advanced and increase the disk image size
+   - **Linux**: Edit `/etc/docker/daemon.json` to specify a larger size or different location
+
+3. **Use BuildKit** for more efficient builds:
+
+   ```bash
+   DOCKER_BUILDKIT=1 docker build -t coinbase-agent:latest .
+   ```
+
+4. **Use a remote build service:**
+   Consider using GitHub Actions, GitLab CI, or a dedicated build server with more resources
+
 ## 🏗️ Architecture
 
 The system consists of several key components:

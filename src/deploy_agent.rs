@@ -117,7 +117,7 @@ async fn deploy_to_tee(
     // Deploy with the VM configuration and encrypted environment variables
     logging::info!("Deploying agent to TEE with encrypted environment variables");
     let deployment = deployer
-        .deploy_with_encrypted_env(vm_config_json, encrypted_env.clone(), &pubkey)
+        .deploy_with_encrypted_env(vm_config_json, encrypted_env.clone(), &pubkey, &salt)
         .await
         .map_err(|e| format!("Failed to deploy to TEE: {}", e))?;
 

@@ -12246,7 +12246,7 @@ dependencies = [
 [[package]]
 name = "phala-tee-deploy-rs"
 version = "0.1.0"
-source = "git+https://github.com/tangle-network/phala-tee-deploy-rs#7c37655eb1a1af92ce91ce5d4396d109e007c818"
+source = "git+https://github.com/tangle-network/phala-tee-deploy-rs#b5a6ac4827985b6e505abb7a025cc8bb15acf4b6"
 dependencies = [
  "aes-gcm",
  "dotenv",

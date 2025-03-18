@@ -390,6 +390,11 @@ async fn test_deploy_agent_tee() {
     // Get env_encrypt_tool from the service (if available) to properly encrypt the variables
     // This would typically involve using the TEE service's encryption API
     let container_name = format!("coinbase-agent-{}", create_result.agent_id);
+
+    // Check if a Docker image is specified in the environment
+    let docker_image =
+        std::env::var("DOCKER_IMAGE").unwrap_or_else(|_| "coinbase-agent:latest".to_string());
+
     let env_vars: Vec<(String, String)> = vec![
         ("PORT", "3000"),
         ("WEBSOCKET_PORT", "3001"),
@@ -399,6 +404,7 @@ async fn test_deploy_agent_tee() {
         ("MODEL", "gpt-4o-mini"),
         ("LOG_LEVEL", "debug"),
         ("WEBSOCKET_URL", "ws://localhost:3001"),
+        ("DOCKER_IMAGE", &docker_image),
         ("OPENAI_API_KEY", &openai_api_key),
         ("CDP_API_KEY_NAME", &cdp_api_key_name),
         ("CDP_API_KEY_PRIVATE_KEY", &cdp_api_key_private_key),
