@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   agent:
-    image: ${DOCKER_IMAGE:-docker.io/tanglenetwork/coinbase-agent:latest}
+    image: ${DOCKER_IMAGE:-tanglenetwork/coinbase-agent:latest}
     container_name: ${CONTAINER_NAME:-coinbase-agent}
     ports:
       - "${PORT:-3000}:3000"

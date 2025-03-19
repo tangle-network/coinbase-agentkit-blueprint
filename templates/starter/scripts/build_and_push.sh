@@ -22,6 +22,12 @@ if [[ "$REGISTRY" == "docker.io/tanglenetwork" ]]; then
   fi
 fi
 
+# Important repository visibility note
+echo "⚠️  IMPORTANT: For TEE deployments, your Docker Hub repository MUST be public!"
+echo "   Please ensure that '${REGISTRY}/${IMAGE_NAME}' is a public repository on Docker Hub."
+echo "   You can create or update the repository at: https://hub.docker.com/repository/create/general"
+echo ""
+
 # Print build info
 echo "Building Docker image with the following settings:"
 echo "  - Registry: ${REGISTRY}"
@@ -53,4 +59,7 @@ echo
 echo "To use this image in your deployment, set the DOCKER_IMAGE environment variable:"
 echo "  export DOCKER_IMAGE=${FULL_IMAGE_NAME}"
 echo
-echo "Or update your docker-compose.yml to use this image." 
+echo "Or update your docker-compose.yml to use this image."
+echo
+echo "⚠️  REMINDER: For TEE deployments, verify your repository is public at:"
+echo "   https://hub.docker.com/r/${REGISTRY//docker.io\//}/${IMAGE_NAME}" 
