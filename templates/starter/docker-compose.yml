@@ -2,15 +2,7 @@ version: "3.8"
 
 services:
   agent:
-    # Use a pre-built image if DOCKER_IMAGE is set, otherwise fall back to build
-    image: ${DOCKER_IMAGE:-coinbase-agent:latest}
-    # Keep build configuration as fallback if no image is specified
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        # Enable or disable tests during build
-        RUN_TESTS: ${RUN_TESTS:-false}
+    image: ${DOCKER_IMAGE:-docker.io/tanglenetwork/coinbase-agent:latest}
     container_name: ${CONTAINER_NAME:-coinbase-agent}
     ports:
       - "${PORT:-3000}:3000"
@@ -26,9 +18,6 @@ services:
       - AGENT_MODE=${AGENT_MODE:-http}
       - MODEL=${MODEL:-gpt-4o-mini}
       - LOG_LEVEL=${LOG_LEVEL:-debug}
-    # Add explicit volumes for .env file to ensure variables are available
-    volumes:
-      - ./.env:/app/.env:ro
     command: sh -c "yarn install && yarn dev"
     restart: unless-stopped
     healthcheck:

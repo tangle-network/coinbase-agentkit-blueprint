@@ -5,16 +5,16 @@
 set -e
 
 # Configuration - adjust these variables as needed
-REGISTRY="${REGISTRY:-ghcr.io/your-username}"  # Use environment variable or default
+REGISTRY="${REGISTRY:-docker.io/tanglenetwork}"  # Use environment variable or default
 IMAGE_NAME="coinbase-agent"
 VERSION=$(date +%Y%m%d%H%M%S)  # Use timestamp as version
 FULL_IMAGE_NAME="${REGISTRY}/${IMAGE_NAME}:${VERSION}"
 LATEST_TAG="${REGISTRY}/${IMAGE_NAME}:latest"
 
 # Check if registry is set
-if [[ "$REGISTRY" == "ghcr.io/your-username" ]]; then
+if [[ "$REGISTRY" == "docker.io/tanglenetwork" ]]; then
   echo "WARNING: Using default registry. Set the REGISTRY environment variable to your actual registry."
-  echo "Example: REGISTRY=ghcr.io/actual-username ./build_and_push.sh"
+  echo "Example: REGISTRY=docker.io/tanglenetwork ./build_and_push.sh"
   read -p "Continue with default registry? (y/n) " -n 1 -r
   echo
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then
