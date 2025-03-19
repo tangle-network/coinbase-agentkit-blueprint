@@ -176,11 +176,15 @@ async fn deploy_locally(
         ));
     }
 
-    // Start the Docker container
-    logging::info!("Starting Docker container");
-    let output = TokioCommand::new("docker-compose")
+    // Start the Docker container with explicit DOCKER_IMAGE env var
+    logging::info!("Starting Docker container with image: tanglenetwork/coinbase-agent:latest");
+    let mut command = TokioCommand::new("docker-compose");
+    command
         .args(&["up", "-d"])
         .current_dir(agent_dir)
+        .env("DOCKER_IMAGE", "tanglenetwork/coinbase-agent:latest");
+
+    let output = command
         .output()
         .await
         .map_err(|e| format!("Failed to start Docker container: {}", e))?;
@@ -300,7 +304,7 @@ fn create_env_content(
          OPENAI_API_KEY={openai_api_key}\n\
          CDP_API_KEY_NAME={cdp_api_key_name}\n\
          CDP_API_KEY_PRIVATE_KEY={cdp_api_key_private_key}\n\
-         DOCKER_IMAGE=docker.io/tanglenetwork/coinbase-agent:latest\n"
+         DOCKER_IMAGE=tanglenetwork/coinbase-agent:latest\n"
     );
 
     Ok(env_content)
