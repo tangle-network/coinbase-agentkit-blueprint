@@ -299,7 +299,8 @@ fn create_env_content(
          WEBSOCKET_URL=ws://localhost:{websocket_port}\n\
          OPENAI_API_KEY={openai_api_key}\n\
          CDP_API_KEY_NAME={cdp_api_key_name}\n\
-         CDP_API_KEY_PRIVATE_KEY={cdp_api_key_private_key}\n"
+         CDP_API_KEY_PRIVATE_KEY={cdp_api_key_private_key}\n\
+         DOCKER_IMAGE=docker.io/tanglenetwork/coinbase-agent:latest\n"
     );
 
     Ok(env_content)

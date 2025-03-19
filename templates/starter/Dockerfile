@@ -11,8 +11,9 @@ RUN corepack enable
 COPY package.json yarn.lock ./
 
 # Install dependencies with frozen lockfile for reproducibility
+# Use standard install to be more resilient with different Yarn versions
 RUN corepack prepare yarn@stable --activate && \
-    yarn install --frozen-lockfile && \
+    yarn install && \
     yarn cache clean
 
 # Copy application code 
@@ -20,6 +21,10 @@ COPY . .
 
 # Build the application if needed
 RUN if grep -q "\"build\":" package.json; then yarn build; fi
+
+# Reinstall dependencies to ensure all are properly loaded
+# This addresses the ts-node missing package issue
+RUN yarn install
 
 # Default values which can be overridden at runtime
 ENV PORT=3000
